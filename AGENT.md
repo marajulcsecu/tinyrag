@@ -2,10 +2,11 @@
 
 > **Purpose:** This file is the single source of truth for anyone (human or AI) picking up the TinyRAG project. If you are a new agent, **read this first** before doing anything. It tells you what the project is, what decisions have been made, where things live, and what to do next.
 
-**Last updated:** 2026-06-23 (update 7)
-**Project status:** All planning docs complete (Phases 0/1/2 done); evaluation methodology (gold set + scoring rubric) written
-**Next milestone:** Step 3.1 of Phase 3 — Initialize Git repo (awaiting student instructions)
+**Last updated:** 2026-06-23 (update 8)
+**Project status:** Step 3.1 complete — repo initialized with 35 files on `main` (commit `e4a3f5e`)
+**Next milestone:** Step 3.2 — Python venv + pinned requirements
 **Canonical roadmap:** `docs/06_roadmap_v2.md` (the older `v1` and `laptop_v1` are historical only)
+**Initial commit SHA:** `e4a3f5e` (see §11 Build Journal)
 
 ---
 
@@ -212,19 +213,13 @@ TinyRAG/
 - ✅ Use case selected (Smart Home Assistant)
 - ✅ LLM selected (Phi-3 Mini 3.8B)
 - ✅ All major decisions made
-- ✅ `00_high_level_plan.md` written (whole-journey map)
-- ✅ `01_project_scope_v2.md` written (refined scope)
-- ✅ `02_srs_v1.md` written (58 FRs + 37 NFRs)
-- ✅ `03_architecture_v1.md` written (C4 model + Protocol interfaces)
-- ✅ `04_database_design_v1.md` written (FAISS + SQLite + CSV)
-- ✅ `05_tech_stack_v1.md` written (pinned versions)
-- ✅ `06_roadmap_v2.md` written and **APPROVED** (canonical, laptop-first)
-- ✅ `docs/evaluation/gold_set.md` written (20 evaluation questions)
-- ✅ `docs/evaluation/scoring_rubric.md` written (human-judgment rubric)
-- ⏳ Ready for Step 3.1: Initialize Git repository
+- ✅ All 8 planning docs complete (Phase 0–2 done)
+- ✅ Evaluation methodology complete (gold set + scoring rubric)
+- ✅ **Step 3.1 complete** — Git repo initialized on `main` (commit `e4a3f5e`, 35 files)
+- ⏳ Next: Step 3.2 — Python venv + pinned `requirements.txt` + `pyproject.toml` + `Makefile`
 
 **Immediate next step (after this turn):**
-- Await student's instructions on how to begin Step 3.1 (they may want to do it themselves, or want files pre-generated)
+- Await student's go-ahead for Step 3.2 (venv + requirements). They will need to run a few terminal commands themselves.
 
 ---
 
@@ -248,4 +243,64 @@ These are NOT blockers, but should be resolved before we reach Week 5:
 
 ---
 
-*End of AGENT.md. Update this file whenever a major decision changes or a milestone is reached.*
+## 11. Build Journal — Step-by-Step Tracker
+
+This section is the **running log of every step executed**, in execution order. It is updated as each step of the canonical roadmap (`docs/06_roadmap_v2.md`) is completed.
+
+**Why this exists:** so the student, advisor, and any future contributor can answer three questions instantly:
+1. *What has been done so far?*
+2. *What's left to do, in what order?*
+3. *What commit / artifact corresponds to each step?*
+
+### 11.1 Phase 3 — Setup (laptop)
+
+| Step | Description | Status | Commit SHA | Commit message | Notes |
+|------|-------------|--------|------------|----------------|-------|
+| 3.1 | Initialize Git repository | ✅ Done | `e4a3f5e` | `chore(repo): initialize repository with planning docs and project hygiene` | 35 files: README, LICENSE, .gitignore, AGENT.md, CONTRIBUTING, SECURITY, COC, planning docs, .gitkeeps |
+| 3.2 | Set up Python venv + pinned requirements | ⏳ Next | — | — | Student action: create venv, run `pip install` |
+| 3.3 | Install system deps for llama.cpp + OpenBLAS | ⬜ Pending | — | — | Student action: `bash scripts/install_system_deps.sh` |
+| 3.4 | Build llama.cpp from source with OpenBLAS | ⬜ Pending | — | — | Student action: `bash scripts/build_llamacpp.sh` |
+| 3.5 | Download Phi-3 Mini 3.8B GGUF | ⬜ Pending | — | — | Student action: `python scripts/download_models.py --model phi3-mini` |
+| 3.6 | Download TinyLlama + Llama 3.2 (for comparison) | ⬜ Pending | — | — | Student action: same script, different flag |
+| 3.7 | Smoke test: llama-server runs + responds | ⬜ Pending | — | — | Manual smoke test |
+| 3.8 | Write top-level `config.yaml` with all paths | ⬜ Pending | — | — | |
+| 3.9 | Confirm repo structure matches `06_roadmap_v2.md` Phase 3 done-state | ⬜ Pending | — | — | |
+
+### 11.2 Phase 4 — Build (laptop)
+
+_(To be populated as steps complete)_
+
+### 11.3 Phase 5 — Test (laptop)
+
+_(To be populated as steps complete)_
+
+### 11.4 Phase 6 — Deploy (Pi + sensors, Week 9)
+
+_(To be populated as steps complete)_
+
+### 11.5 Phase 7 — Report (Week 10)
+
+_(To be populated as steps complete)_
+
+### 11.6 Step Status Legend
+
+| Symbol | Meaning |
+|--------|---------|
+| ✅ Done | Code merged, tests pass, student approved |
+| ⏳ Next | Identified as the next step to start |
+| ⬜ Pending | Planned but not started |
+| 🔄 In progress | Currently being worked on |
+| 🛑 Blocked | Stopped on a gate or risk; needs decision |
+| ❌ Skipped | Intentionally skipped (with reason) |
+
+### 11.7 Daily / Per-Step Convention
+
+When a step is completed, append one row to the relevant phase subtable, in this format:
+
+```markdown
+| 3.2 | Set up Python venv + pinned requirements | ✅ Done | `<short SHA>` | `chore(deps): ...` | Brief outcome + any deviation |
+```
+
+---
+
+*End of AGENT.md. Update this file whenever a major decision changes, a milestone is reached, or a step in the Build Journal completes.*
