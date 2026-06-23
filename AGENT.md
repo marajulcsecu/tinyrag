@@ -2,14 +2,15 @@
 
 > **Purpose:** This file is the single source of truth for anyone (human or AI) picking up the TinyRAG project. If you are a new agent, **read this first** before doing anything. It tells you what the project is, what decisions have been made, where things live, and what to do next.
 
-**Last updated:** 2026-06-23 (update 11)
-**Project status:** Step 3.3 complete — system deps installed (OpenBLAS 0.3.26)
-**Next milestone:** Step 3.4 — Build llama.cpp from source with OpenBLAS
+**Last updated:** 2026-06-23 (update 12)
+**Project status:** Step 3.4 complete — llama.cpp built with OpenBLAS, 7/7 verification checks pass
+**Next milestone:** Step 3.5 — Download Phi-3 Mini 3.8B GGUF model
 **Canonical roadmap:** `docs/06_roadmap_v2.md` (the older `v1` and `laptop_v1` are historical only)
 **Remote:** `https://github.com/marajulcsecu/tinyrag`
-**Tip of `main`:** `aca827c` (see §11 Build Journal)
+**Tip of `main`:** `2b61567` (see §11 Build Journal)
 **Venv location:** `~/venvs/tinyrag` (symlinked as `.venv` in project root)
 **OpenBLAS version:** 0.3.26 (verified via pkg-config)
+**llama.cpp:** tag `gguf-v0.19.0` (commit `a290ce626663dae1d54f70bce3ca6d8f67aab62f`) — built at `/tmp/llamacpp-build/build/` (colon-path workaround; symlinked into `llama.cpp/build/`)
 
 ---
 
@@ -218,11 +219,14 @@ TinyRAG/
 - ✅ All major decisions made
 - ✅ All 8 planning docs complete (Phase 0–2 done)
 - ✅ Evaluation methodology complete (gold set + scoring rubric)
-- ✅ **Step 3.1 complete** — Git repo initialized on `main` (commit `e4a3f5e`, 35 files)
-- ⏳ Next: Step 3.2 — Python venv + pinned `requirements.txt` + `pyproject.toml` + `Makefile`
+- ✅ **Steps 3.1–3.4 complete** — repo initialized, Python env pinned, system deps installed, llama.cpp built with OpenBLAS
+- ⏳ Next: Step 3.5 — Download Phi-3 Mini 3.8B GGUF model
 
-**Immediate next step (after this turn):**
-- Await student's go-ahead for Step 3.2 (venv + requirements). They will need to run a few terminal commands themselves.
+**Immediate next step (Step 3.5):**
+- Write `scripts/download_models.py` (CLI to fetch GGUF files from Hugging Face, verify SHA256, place in `models/`).
+- Download Phi-3 Mini Q4_K_M (~2.3 GB) and verify the file is not corrupted.
+- Update `docs/BUILDS.md` §2.5 (or a new `docs/MODELS.md`) with the model record (size, SHA256, license).
+- This step is a STUDENT ACTION — they will run the download script themselves.
 
 ---
 
@@ -262,8 +266,8 @@ This section is the **running log of every step executed**, in execution order. 
 | 3.1 | Initialize Git repository | ✅ Done | `f78e0a7` (tip) | `docs(agent): mark Step 3.1 complete and add Build Journal section` | 35+ files pushed to `https://github.com/marajulcsecu/tinyrag`. History is a 3-commit rebase: GitHub's auto-MIT (dca6b0d) → initial repo (e401c6d) → AGENT.md Build Journal (f78e0a7). |
 | 3.2 | Set up Python venv + pinned requirements | ✅ Done | `1519733` | `chore(deps): set up pinned Python environment (Step 3.2)` | Added requirements.txt, requirements-dev.txt, pyproject.toml, Makefile, .env.example, tests/test_smoke.py, src/tinyrag/__init__.py. Venv at `~/venvs/tinyrag` (symlinked as `.venv`) because project path contains colons. 32/32 smoke tests pass. |
 | 3.3 | Install system deps for llama.cpp + OpenBLAS | ✅ Done | `aca827c` | `chore(deps): add system dep installer and native build manifest (Step 3.3)` | Installed libopenblas-dev 0.3.26, liblapack-dev, tree via apt. Added scripts/install_system_deps.sh (idempotent, --check, --with-extras), docs/BUILDS.md (build manifest with placeholders for llama.cpp SHA), 3 new Makefile targets (deps-system, deps-verify, deps-extras) + 3 placeholders for Step 3.4 (llama-dir, build-llamacpp, build). |
-| 3.4 | Build llama.cpp from source with OpenBLAS | ⏳ Next | — | — | Student action: `bash scripts/build_llamacpp.sh` (or `make build`) |
-| 3.5 | Download Phi-3 Mini 3.8B GGUF | ⬜ Pending | — | — | Student action: `python scripts/download_models.py --model phi3-mini` |
+| 3.4 | Build llama.cpp from source with OpenBLAS | ✅ Done | `2b61567` | `feat(llm): build llama.cpp with OpenBLAS (Step 3.4)` | Cloned llama.cpp at tag `gguf-v0.19.0` (commit `a290ce62`); built with `-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS`; binary 9.4 MB; OpenBLAS linked (verified via ldd). `scripts/verify_llamacpp.py` passes 7/7 checks. **Colon-path workaround:** because project path contains `:`, GNU Make can't parse Makefile targets, so the build was diverted to `/tmp/llamacpp-build/` and symlinked back into `llama.cpp/build/` (BUILDS.md §2.2.1). |
+| 3.5 | Download Phi-3 Mini 3.8B GGUF | ⏳ Next | — | — | Student action: `python scripts/download_models.py --model phi3-mini` (script not yet written — will be created in Step 3.5) |
 | 3.6 | Download TinyLlama + Llama 3.2 (for comparison) | ⬜ Pending | — | — | Student action: same script, different flag |
 | 3.7 | Smoke test: llama-server runs + responds | ⬜ Pending | — | — | Manual smoke test |
 | 3.8 | Write top-level `config.yaml` with all paths | ⬜ Pending | — | — | |
