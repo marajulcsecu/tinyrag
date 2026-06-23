@@ -121,16 +121,28 @@ The `setup.sh` script **auto-detects the architecture** and applies the right fl
 
 ### 3.5 LLM Models (GGUF files)
 
-| Role | Model | GGUF filename | Size | Source URL |
-|------|-------|---------------|------|------------|
-| **Primary** | Phi-3 Mini 3.8B Instruct (4k) Q4_K_M | `phi-3-mini-3.8b-instruct-q4.gguf` | ~2.3 GB | HF: `microsoft/Phi-3-mini-4k-instruct-gguf` |
-| **Eval A** | TinyLlama 1.1B Chat v1.0 Q4_K_M | `tinyllama-1.1b-chat-v1.0-q4.gguf` | ~700 MB | HF: `TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF` |
-| **Eval B** | Llama 3.2 3B Instruct Q4_K_M | `llama-3.2-3b-instruct-q4.gguf` | ~1.8 GB | HF: `meta-llama/Llama-3.2-3B-Instruct-GGUF` (or bartowski mirror) |
-| **Eval C (optional)** | Mistral 7B Instruct v0.3 Q4_K_M | `mistral-7b-instruct-v0.3-q4.gguf` | ~4 GB | HF: `TheBloke/Mistral-7B-Instruct-v0.3-GGUF` |
+| Role | Model | On-disk filename | Size | Source URL |
+|------|-------|------------------|------|------------|
+| **Primary** | Phi-3 Mini 3.8B Instruct (4k) Q4_K_M | `models/phi-3-mini.gguf` | ~2.3 GB | HF: `microsoft/Phi-3-mini-4k-instruct-gguf` |
+| **Eval A** | TinyLlama 1.1B Chat v1.0 Q4_K_M | `models/tinyllama-1.1b.gguf` | ~700 MB | HF: `TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF` |
+| **Eval B** | Llama 3.2 3B Instruct Q4_K_M | `models/llama-3.2-3b.gguf` | ~1.8 GB | HF: `bartowski/Llama-3.2-3B-Instruct-GGUF` |
+| **Eval C (optional)** | Mistral 7B Instruct v0.3 Q4_K_M | `models/mistral-7b.gguf` | ~4 GB | HF: `TheBloke/Mistral-7B-Instruct-v0.3-GGUF` |
 
-> **Note on Llama 3.2:** the official Meta repo is gated; we use a community mirror (e.g., `bartowski/Llama-3.2-3B-Instruct-GGUF`) that has the same model. The actual URL will be set in `scripts/download_models.py` at setup time.
+> **On-disk filename convention.** We standardise on the model *id* as the on-disk filename (`<models_dir>/<id>.gguf`), not the upstream HF filename. This is a deliberate footgun-avoidance measure: if the upstream maintainer renames the file (e.g. `Phi-3-mini-4k-instruct-q4.gguf` → `Phi-3-mini-4k-instruct-q4_k_m.gguf`), our `make run-llm` keeps working. The mapping from id to upstream filename lives in `src/tinyrag/models/registry.py` and is documented in `docs/MODELS.md` §1.
+
+> **Note on Llama 3.2:** the official Meta repo is gated; we use the community `bartowski` mirror which hosts the same weights. This is captured in the registry entry for `llama-3.2-3b` (`hf_repo = "bartowski/Llama-3.2-3B-Instruct-GGUF"`). For attribution in the final report, see the Llama 3.2 community license block on <https://llama.meta.com/>.
+
+**Download mechanism.** Use `scripts/download_models.py` (or the `make download-llm` shortcut). The script:
+
+1. Resolves the URL from the registry.
+2. Streams the file in 1 MiB chunks.
+3. Resumes interrupted downloads via HTTP `Range`.
+4. Verifies the SHA-256 against `models/_manifest.json`.
+5. Refuses to keep a file whose hash doesn't match.
 
 **Why Q4_K_M?** It's the sweet spot — small enough to fit in 3 GB RAM, fast enough on CPU, quality retention ~95% of F16. This is what `ollama` ships by default for the same reason.
+
+**Full catalog and SHA-256 pins:** see `docs/MODELS.md` (the human-readable mirror of `src/tinyrag/models/registry.py`).
 
 ---
 

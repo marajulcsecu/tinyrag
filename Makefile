@@ -37,7 +37,9 @@ SHELL     := /usr/bin/env bash
 .PHONY: help venv install install-dev upgrade freeze lint format typecheck \
         test test-fast test-cov smoke run run-api run-llm clean clean-pyc \
         clean-venv clean-all verify deps-system deps-verify deps-extras \
-        build build-llamacpp llama-dir
+        build build-llamacpp llama-dir \
+        list-models download-llm download-llm-all download-llm-force \
+        verify-llm verify-llm-all setup-laptop
 
 
 # ---- Help -----------------------------------------------------------------
@@ -61,7 +63,17 @@ help:  ## Show this help (default target)
 	@echo "Testing:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
-	         /test|smoke|verify/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	         /test|smoke/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Models:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	    awk 'BEGIN {FS = ":.*?## "}; \
+	         /list-models|download|verify-llm|setup-laptop/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Native build:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	    awk 'BEGIN {FS = ":.*?## "}; \
+	         /deps-system|deps-verify|deps-extras|build|llama-dir/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Run:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -186,6 +198,38 @@ build-llamacpp: llama-dir deps-system  ## Build llama.cpp with OpenBLAS (laptop)
 build: build-llamacpp  ## Build all native components (alias for build-llamacpp in Phase 3)
 
 
+# ---- Step 3.5: Download GGUF models ---------------------------------------
+# We standardise on the model id as the on-disk filename:
+# `models/<id>.gguf` — so the path doesn't change when the upstream HF
+# filename changes (a real footgun if the path is hardcoded everywhere).
+MODELS_DIR ?= models
+LLM_MODEL  ?= phi-3-mini
+LLM_GGUF   := $(MODELS_DIR)/$(LLM_MODEL).gguf
+
+list-models:  ## List every model in the catalog (no I/O)
+	@$(PYTHON) scripts/download_models.py --list
+
+download-llm:  ## Download the primary LLM ($(LLM_MODEL)) to $(MODELS_DIR)/
+	@echo ">> Downloading $(LLM_MODEL) to $(MODELS_DIR)/"
+	@$(PYTHON) scripts/download_models.py --model $(LLM_MODEL) --models-dir $(MODELS_DIR)
+
+download-llm-all:  ## Download every model in the catalog (large!)
+	@echo ">> Downloading all models to $(MODELS_DIR)/"
+	@$(PYTHON) scripts/download_models.py --all --models-dir $(MODELS_DIR)
+
+download-llm-force:  ## Force re-download of the primary LLM (ignores cache)
+	@$(PYTHON) scripts/download_models.py --model $(LLM_MODEL) --models-dir $(MODELS_DIR) --force
+
+verify-llm:  ## Re-hash on-disk models against the manifest (no network)
+	@$(PYTHON) scripts/download_models.py --verify-only --model $(LLM_MODEL) --models-dir $(MODELS_DIR)
+
+verify-llm-all:  ## Re-hash every model on disk (no network)
+	@$(PYTHON) scripts/download_models.py --verify-only --all --models-dir $(MODELS_DIR)
+
+# Convenience: build + download primary in one shot.
+setup-laptop: build download-llm  ## Build llama.cpp + download the primary LLM
+
+
 run-api:  ## Start the FastAPI dev server (Phase 4)
 	@echo ">> Starting FastAPI at http://localhost:8000"
 	$(VENV)/bin/uvicorn tinyrag.main:app --reload --host 127.0.0.1 --port 8000
@@ -196,8 +240,12 @@ run-llm:  ## Start the llama.cpp HTTP server (Phase 3.7+)
 		echo "ERROR: llama.cpp not built yet. Run: bash scripts/build_llamacpp.sh"; \
 		exit 1; \
 	fi
+	@if [ ! -f $(LLM_GGUF) ]; then \
+		echo "ERROR: $(LLM_GGUF) not found. Run: make download-llm"; \
+		exit 1; \
+	fi
 	@llama.cpp/build/bin/llama-server \
-		--model models/phi-3-mini-4k-instruct-q4.gguf \
+		--model $(LLM_GGUF) \
 		--host 127.0.0.1 --port 8080 \
 		--ctx-size 4096 --threads 10
 

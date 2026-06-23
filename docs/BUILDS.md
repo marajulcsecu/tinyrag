@@ -159,6 +159,16 @@ The Step 3.4 build was completed and verified on 2026-06-23. Recorded here so fu
 
 OpenBLAS auto-detects cores. On the i5-1235U (10 cores, 12 threads), you can also pin via `OPENBLAS_NUM_THREADS=8` to avoid over-subscription. The `llama-server` invocation in Step 3.7 will set `--threads 10`.
 
+### 3.3 Models (cross-reference)
+
+This document covers **native compilation** (llama.cpp + OpenBLAS). For the GGUF model files themselves, see:
+
+- **`docs/MODELS.md`** — the human-readable catalog (id, repo, size, license, SHA-256, role).
+- **`src/tinyrag/models/registry.py`** — the machine-readable catalog (`MODEL_REGISTRY`).
+- **`models/_manifest.json`** — the per-machine audit log (written on first download; runtime source of truth for "is this file genuine?").
+
+The build script (`scripts/build_llamacpp.sh`) only produces the inference engine. The model files are a separate Step (3.5) downloaded via `scripts/download_models.py` (or `make download-llm`).
+
 ---
 
 ## 4. Reproducibility Checklist
