@@ -1,0 +1,37 @@
+# ============================================================================
+# TinyRAG — Development & Testing Dependencies
+# ----------------------------------------------------------------------------
+# Installed on top of requirements.txt for development, testing, and CI.
+# NOT installed in production / on the Pi.
+#
+# Install:    pip install -r requirements.txt -r requirements-dev.txt
+#            (or simply: make install-dev)
+# ============================================================================
+
+
+# ---- Testing ----
+pytest==8.3.3
+pytest-asyncio==0.24.0          # async test support (FastAPI endpoints)
+pytest-cov==5.0.0               # coverage reports
+pytest-mock==3.14.0             # clean mocking without monkeypatch boilerplate
+
+
+# ---- Linting & formatting ----
+ruff==0.7.2                     # 10-100× faster than flake8+black+isort combined
+mypy==1.13.0                    # static type checking (gradual; not strict yet)
+
+
+# ---- Type stubs for libraries that lack them ----
+types-PyYAML==6.0.12.20240917
+types-python-dateutil==2.9.0.20241003
+types-requests==2.32.0.20240914
+
+
+# ---- Build / packaging helpers (used by Makefile) ----
+build==1.2.2                    # PEP 517 build frontend
+pip-tools==7.4.1                # pip-compile for hash-pinned lockfiles (future)
+
+
+# ---- Documentation (Sphinx later; for now just keep myst-parser handy) ----
+# Sphinx is intentionally NOT pinned here — it pulls in many deps. Add when
+# docs/06_roadmap_v2.md Phase 7 arrives and we actually generate API docs.

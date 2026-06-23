@@ -1,0 +1,94 @@
+# ============================================================================
+# TinyRAG — Runtime Dependencies
+# ----------------------------------------------------------------------------
+# Pinned versions mirror docs/05_tech_stack_v1.md §4. Update that doc first
+# when bumping a version, then update here, then run `make install` and
+# `make test` to confirm nothing breaks.
+#
+# Install:    pip install -r requirements.txt
+# Upgrade:    NEVER edit this file by hand to bump a version. Open a PR
+#             that updates both this file AND docs/05_tech_stack_v1.md.
+# Hash check: pip install --require-hashes -r requirements.txt   (CI only)
+# ============================================================================
+
+
+# ----------------------------------------------------------------------------
+# 1. Web framework & async server
+# ----------------------------------------------------------------------------
+fastapi==0.115.4
+uvicorn[standard]==0.32.0       # [standard] pulls in httptools, uvloop, etc.
+jinja2==3.1.4                   # server-side templates for the web UI
+python-multipart==0.0.12        # required for FastAPI file uploads
+markdown==3.7                   # render model answers + doc snippets as HTML
+
+
+# ----------------------------------------------------------------------------
+# 2. Configuration & data validation
+# ----------------------------------------------------------------------------
+pyyaml==6.0.2                   # config.yaml loader
+pydantic==2.9.2                 # data validation (v2 — faster, stricter)
+pydantic-settings==2.6.1        # settings-as-a-class pattern for config
+python-dotenv==1.0.1            # load .env into os.environ (12-factor)
+
+
+# ----------------------------------------------------------------------------
+# 3. Vector store & embeddings
+# ----------------------------------------------------------------------------
+faiss-cpu==1.8.0.post1          # CPU-only FAISS — no GPU dep
+sentence-transformers==3.2.1    # embedding model wrapper
+# NOTE on torch: PyPI's default `torch==2.4.1` is the CUDA build (~2 GB).
+# To get the CPU-only wheel (~250 MB), install with the PyTorch CPU index:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1
+# `setup.sh` does this automatically. If you pip install -r requirements.txt
+# directly on a CPU-only machine (Pi, or laptop without NVIDIA GPU), the
+# CUDA build installs harmlessly but wastes disk — runtime is identical
+# because torch.cuda.is_available() returns False either way.
+torch==2.4.1
+numpy==1.26.4                   # pinned for faiss-cpu 1.8.x compatibility
+tiktoken==0.8.0                 # token counting for chunking & prompts
+
+
+# ----------------------------------------------------------------------------
+# 4. Document parsing
+# ----------------------------------------------------------------------------
+pdfplumber==0.11.4              # robust PDF text extraction
+
+
+# ----------------------------------------------------------------------------
+# 5. HTTP client (talks to llama.cpp HTTP server)
+# ----------------------------------------------------------------------------
+httpx==0.27.2                   # async + sync HTTP client
+sse-starlette==2.1.3            # Server-Sent Events for streaming LLM tokens
+
+
+# ----------------------------------------------------------------------------
+# 6. Structured logging
+# ----------------------------------------------------------------------------
+structlog==24.4.0               # JSON-native logging
+
+
+# ----------------------------------------------------------------------------
+# 7. Sensor I/O — laptop (no GPIO)
+# ----------------------------------------------------------------------------
+paho-mqtt==2.1.0                # MQTT client for MQTTBrokerSource
+
+
+# ----------------------------------------------------------------------------
+# 8. Data handling
+# ----------------------------------------------------------------------------
+python-dateutil==2.9.0.post0    # flexible date parsing in sensor CSVs
+pandas==2.2.3                   # sensor data aggregation (Phase 4/5)
+
+
+# ============================================================================
+# Notes for maintainers
+# ----------------------------------------------------------------------------
+# - Pi 5-specific packages (RPi.GPIO, gpiozero, libgpiod, adafruit_*_dht) are
+#   NOT in this file. They are installed conditionally by `setup.sh` in
+#   Phase 6 deployment — see docs/06_roadmap_v2.md Step 6.4.
+# - For hashes / lockfile: run `pip-compile requirements.in` (pip-tools) to
+#   generate requirements.txt with --hash=sha256 lines. This is a future
+#   hardening step; for v1 we trust the pinned versions.
+# - "Extra" dependency groups (dev, test, docs) live in requirements-dev.txt
+#   so production installs can use just `pip install -r requirements.txt`.
+# ============================================================================

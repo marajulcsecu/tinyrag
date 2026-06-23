@@ -38,6 +38,7 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Virtual environments
+.venv
 .venv/
 venv/
 env/
@@ -76,13 +77,21 @@ reports/                    # generated CSV / PDF reports (regenerable)
 # ----------------------------------------------------------------------------
 # 3. Environment & secrets
 # ----------------------------------------------------------------------------
+# IMPORTANT: the allow-list (lines starting with !) MUST come AFTER the
+# ignore rules they override — git applies .gitignore top-to-bottom and the
+# last matching rule wins.
 .env
 .env.*
-!.env.example               # template IS tracked
 *.pem
 *.key
 secrets/
 config.local.yaml           # local config overrides
+
+# Allow-list (overrides the rules above).
+# Use the FULL pattern to negate — wildcards in negation patterns don't
+# work the way you'd expect in older git versions.
+!.env.example               # template IS tracked (committed)
+!.env.template              # alternate name, also tracked
 
 # ----------------------------------------------------------------------------
 # 4. IDE / editor
