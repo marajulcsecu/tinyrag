@@ -35,6 +35,7 @@ from tinyrag.models import (
     MODEL_REGISTRY,
     ChecksumMismatchError,
     ModelDownloader,
+    NetworkError,
     UnknownModelError,
 )
 from tinyrag.models.downloader import (
@@ -42,6 +43,7 @@ from tinyrag.models.downloader import (
     MANIFEST_FILENAME,
     DownloadProgress,
 )
+from tinyrag.models.registry import ModelEntry
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -67,7 +69,22 @@ class _FakeResponse:
         body: bytes,
         status: int,
         range_header: str | None,
+        *,
+        advertised_length: int | None = None,
     ) -> None:
+        """Construct a fake response.
+
+        Parameters
+        ----------
+        body:
+            The actual bytes that ``.read()`` will return. May be
+            shorter than ``advertised_length`` to simulate a server
+            that closed the connection mid-body.
+        advertised_length:
+            Optional override for the ``Content-Length`` header. When
+            set, the response will lie about how many bytes it's
+            sending — this is how we exercise the short-read guard.
+        """
         self._body = body
         self.status = status
         # Parse "bytes=N-" or "bytes=N-M".
@@ -78,13 +95,15 @@ class _FakeResponse:
             end = int(end_str) if end_str else len(body) - 1
             self._slice = body[start : end + 1]
             self.status = 206  # Partial Content
+            length = advertised_length if advertised_length is not None else len(self._slice)
             self.headers = {
-                "Content-Length": str(len(self._slice)),
+                "Content-Length": str(length),
                 "Content-Range": f"bytes {start}-{end}/{len(body)}",
             }
         else:
             self._slice = body
-            self.headers = {"Content-Length": str(len(self._slice))}
+            length = advertised_length if advertised_length is not None else len(self._slice)
+            self.headers = {"Content-Length": str(length)}
 
     def read(self, n: int = -1) -> bytes:
         if n < 0 or n >= len(self._slice):
@@ -382,6 +401,121 @@ def test_download_progress_callbacks(
     download_events = [e for e in events if e.phase == "download"]
     for prev, curr in pairwise(download_events):
         assert curr.bytes_done >= prev.bytes_done
+
+
+class TestTruncationGuard:
+    """The downloader must refuse to commit a file the server didn't finish.
+
+    Regression: a Llama 3.2 download in 2026-06 stopped at 753 MB of an
+    expected 1.8 GB after the server closed the connection mid-stream.
+    The downloader treated ``read()`` returning b"" as "done", hashed the
+    truncated bytes, and wrote a "valid" manifest. llama-server only
+    failed later with the cryptic error "tensor data is not within the
+    file bounds". These tests lock the short-read guard in place.
+    """
+
+    def test_short_read_raises_network_error_and_cleans_up(
+        self, downloader_factory, tmp_models_dir
+    ) -> None:
+        """Server advertises 1 KB but only sends 512 bytes."""
+        # Build a custom opener that returns a response which lies
+        # about its Content-Length (says 1024, body is 512).
+        def _open(req: Request) -> _FakeResponse:
+            return _FakeResponse(
+                body=FAKE_PAYLOAD[:512],  # half the file
+                status=200,
+                range_header=None,
+                advertised_length=1024,  # lie about length
+            )
+
+        dl = downloader_factory(_open)
+        with pytest.raises(NetworkError, match="Truncated download"):
+            dl.download("fake-1k", tmp_models_dir)
+
+        # The partial file must be cleaned up so retry starts fresh.
+        partial = tmp_models_dir / "fake-1k.gguf.partial"
+        assert not partial.exists(), "partial file should be removed on truncation"
+
+        # The final .gguf must NOT exist (we never moved the partial).
+        final = tmp_models_dir / "fake-1k.gguf"
+        assert not final.exists(), "final .gguf must not be written on truncation"
+
+    def test_short_read_against_registry_size_raises(
+        self, downloader_factory, tmp_models_dir, url_for
+    ) -> None:
+        """Defence in depth: registry expected_size_bytes catches what
+        Content-Length misses.
+
+        A server that doesn't send Content-Length (chunked encoding
+        gone wrong, or a buggy proxy) would slip past the short-read
+        guard. The second guard — comparing against
+        ``entry.expected_size_bytes`` — catches that case.
+        """
+        # Build a registry where the model "should" be 10 KB but the
+        # server actually only sends 1 KB of body.
+        entry = ModelEntry(
+            model_id="fake-1k",
+            display_name="fake-1k",
+            hf_repo="fake/repo",
+            hf_filename="fake-1k.gguf",
+            quantization="Q4_K_M",
+            # 10 KB expected — much larger than the 1 KB we actually send.
+            expected_size_bytes=10_000,
+            expected_sha256="",
+            license="MIT",
+            role="primary",
+            intended_context=2048,
+        )
+        reg = {entry.model_id: entry}
+
+        def _open(req: Request) -> _FakeResponse:
+            # No Content-Length at all — pure chunked / unknown-length stream.
+            return _FakeResponse(
+                body=FAKE_PAYLOAD,  # 1 KB
+                status=200,
+                range_header=None,
+                advertised_length=None,  # no length header
+            )
+
+        from tinyrag.models import ModelDownloader
+
+        dl = ModelDownloader(registry=reg, url_opener=_open)
+        with pytest.raises(NetworkError, match="got 1024 bytes, but the registry"):
+            dl.download("fake-1k", tmp_models_dir)
+
+    def test_short_read_then_retry_succeeds(
+        self, downloader_factory, tmp_models_dir
+    ) -> None:
+        """After a truncated download, a second run with the now-removed
+        partial should be able to complete successfully."""
+        call_count = {"n": 0}
+
+        def _open(req: Request) -> _FakeResponse:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # First call: lie about length, send 512 bytes.
+                return _FakeResponse(
+                    body=FAKE_PAYLOAD[:512],
+                    status=200,
+                    range_header=None,
+                    advertised_length=1024,
+                )
+            # Second call: full body, no lie.
+            return _FakeResponse(
+                body=FAKE_PAYLOAD,
+                status=200,
+                range_header=None,
+            )
+
+        dl = downloader_factory(_open)
+
+        # First attempt: must raise.
+        with pytest.raises(NetworkError):
+            dl.download("fake-1k", tmp_models_dir)
+
+        # Second attempt: must succeed (partial was removed by guard).
+        dl.download("fake-1k", tmp_models_dir)
+        assert (tmp_models_dir / "fake-1k.gguf").exists()
 
 
 def test_verify_returns_true_for_correct_file(

@@ -273,6 +273,27 @@ class ModelDownloader:
             model_id=model_id,
             progress_cb=progress_cb,
         )
+
+        # --- Size sanity check (defence in depth) --------------------------
+        # The short-read guard in _fetch catches a missing/late Content-Length
+        # but a malicious or buggy server could still send a Content-Length
+        # that lies. Cross-check the downloaded size against the registry's
+        # expected_size_bytes with a small tolerance (HF sometimes
+        # re-uploads with a slightly different reported size).
+        expected_size = entry.expected_size_bytes
+        if expected_size and size_total < int(expected_size * 0.95):
+            try:
+                partial_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise NetworkError(
+                f"Truncated download for {model_id!r}: "
+                f"got {size_total} bytes, but the registry says the file "
+                f"should be ~{expected_size:,} bytes. "
+                f"This usually means a partial resume from a previous run. "
+                f"Re-run the command to retry."
+            )
+
         actual_hash = self._sha256_file(partial_path)
 
         # --- Verify ---
@@ -438,6 +459,29 @@ class ModelDownloader:
             close = getattr(response, "close", None)
             if callable(close):
                 close()
+
+        # --- Short-read guard ----------------------------------------------
+        # If the server sent a Content-Length but the connection closed
+        # before we got that many bytes, we have a truncated file. This
+        # happens when HF rate-limits mid-stream, the connection drops,
+        # or the server returns less than the full body. Without this
+        # check we would happily hash the truncated bytes, write a
+        # "valid" manifest, and the broken model would only surface
+        # later when llama-server fails with the confusing error
+        # "tensor data is not within the file bounds". Detect it here
+        # with a clear message and remove the partial so retry is clean.
+        if total_estimate is not None and bytes_written != total_estimate:
+            try:
+                dest.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise NetworkError(
+                f"Truncated download for {dest.name}: "
+                f"got {bytes_written} bytes, expected {total_estimate} "
+                f"(server closed connection before sending the full body). "
+                f"Re-run the command to retry."
+            )
+
         return bytes_written
 
     def _sha256_file(self, path: Path) -> str:

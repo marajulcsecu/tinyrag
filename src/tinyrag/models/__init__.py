@@ -36,6 +36,7 @@ from tinyrag.models.downloader import (
     ChecksumMismatchError,
     DownloadError,
     ModelDownloader,
+    NetworkError,
     UnknownModelError,
 )
 from tinyrag.models.registry import MODEL_REGISTRY, ModelEntry
@@ -46,5 +47,6 @@ __all__ = [
     "ModelDownloader",
     "DownloadError",
     "ChecksumMismatchError",
+    "NetworkError",
     "UnknownModelError",
 ]
