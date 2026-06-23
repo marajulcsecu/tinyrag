@@ -40,7 +40,8 @@ SHELL     := /usr/bin/env bash
         deps-system deps-verify deps-extras \
         build build-llamacpp llama-dir \
         list-models download-llm download-llm-all download-llm-force \
-        verify-llm verify-llm-all setup-laptop
+        verify-llm verify-llm-all setup-laptop \
+        sensors-generate sensors-summary
 
 
 # ---- Help -----------------------------------------------------------------
@@ -65,6 +66,11 @@ help:  ## Show this help (default target)
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
 	         /test|smoke/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Sensors:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	    awk 'BEGIN {FS = ":.*?## "}; \
+	         /sensors-/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Models:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -245,6 +251,23 @@ smoke-llm-all:  ## Smoke-test every model on disk — requires llama-server to b
 
 # Convenience: build + download primary in one shot.
 setup-laptop: build download-llm  ## Build llama.cpp + download the primary LLM
+
+
+# ---- Step 3.8: Synthetic sensor data -------------------------------------
+# The default output path lives in data/sensor_logs/ which is gitignored
+# (see .gitignore). Re-run any time — SEED=42 makes it reproducible.
+SENSOR_DATA ?= data/sensor_logs/synthetic_30d.csv
+
+sensors-generate:  ## Generate 30 days of synthetic sensor data to $(SENSOR_DATA)
+	@echo ">> Generating 30-day synthetic sensor dataset"
+	@$(PYTHON) scripts/generate_synthetic_sensors.py --out $(SENSOR_DATA)
+
+sensors-summary:  ## Summarise the on-disk sensor dataset (no I/O if missing)
+	@if [ ! -f $(SENSOR_DATA) ]; then \
+		echo "ERROR: $(SENSOR_DATA) not found. Run: make sensors-generate"; \
+		exit 1; \
+	fi
+	@$(PYTHON) scripts/generate_synthetic_sensors.py --out $(SENSOR_DATA) --summary
 
 
 run-api:  ## Start the FastAPI dev server (Phase 4)

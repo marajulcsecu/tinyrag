@@ -2,16 +2,17 @@
 
 > **Purpose:** This file is the single source of truth for anyone (human or AI) picking up the TinyRAG project. If you are a new agent, **read this first** before doing anything. It tells you what the project is, what decisions have been made, where things live, and what to do next.
 
-**Last updated:** 2026-06-23 (update 15)
-**Project status:** Step 3.7 complete — LLMClient Protocol + LlamaCppClient + smoke test (primary model confirmed working end-to-end)
-**Next milestone:** Step 3.8 — top-level `config.yaml` with all paths
+**Last updated:** 2026-06-23 (update 16)
+**Project status:** Step 3.8 complete — 30-day synthetic sensor dataset generated
+**Next milestone:** Step 3.9 — Phase 3 end-to-end smoke test
 **Canonical roadmap:** `docs/06_roadmap_v2.md` (the older `v1` and `laptop_v1` are historical only)
 **Remote:** `https://github.com/marajulcsecu/tinyrag`
-**Tip of `main`:** `ee984c0` (see §11 Build Journal)
+**Tip of `main`:** (see §11 Build Journal — pending this commit)
 **Venv location:** `~/venvs/tinyrag` (symlinked as `.venv` in project root)
 **OpenBLAS version:** 0.3.26 (verified via pkg-config)
 **llama.cpp:** tag `gguf-v0.19.0` (commit `a290ce626663dae1d54f70bce3ca6d8f67aab62f`) — built at `/tmp/llamacpp-build/build/` (colon-path workaround; symlinked into `llama.cpp/build/`)
-**Primary model on disk:** phi-3-mini (~2.3 GB, SHA-256 verified) — see `docs/MODELS.md` for the full catalog
+**Models on disk:** phi-3-mini, tinyllama-1.1b, llama-3.2-3b, mistral-7b (all SHA-256 verified) — see `docs/MODELS.md`
+**Synthetic data:** `data/sensor_logs/synthetic_30d.csv` — 51,840 rows, 6 sensors, 30 days, SEED=42 (gitignored, regenerable)
 
 ---
 
@@ -220,28 +221,25 @@ TinyRAG/
 - ✅ All major decisions made
 - ✅ All 8 planning docs complete (Phase 0–2 done)
 - ✅ Evaluation methodology complete (gold set + scoring rubric)
-- ✅ **Steps 3.1–3.7 complete** — repo, env, system deps, llama.cpp, model downloader, llama-server runs, and LLMClient Protocol + LlamaCppClient + smoke test
-- ⏳ Next: Step 3.8 — top-level `config.yaml` with all paths
+- ✅ **Steps 3.1–3.8 complete** — repo, env, system deps, llama.cpp, all 4 GGUF models, LLMClient + smoke test, and 30-day synthetic sensor data
+- ⏳ Next: Step 3.9 — Phase 3 end-to-end smoke test
 
-**Immediate next step (Step 3.8 — agent action):**
+**Immediate next step (Step 3.9 — agent action):**
 
-Step 3.8 is mostly mechanical — wire every path the system will need at runtime into `config.yaml` so Phase 4's FastAPI app can `from tinyrag.config import settings` instead of hardcoding paths. No student action required for 3.8 itself.
+Step 3.9 is a one-script checkpoint that exercises the entire Phase 3 stack end-to-end: starts llama-server, sends a hard-coded query, prints the response, and exits cleanly. No student action required.
 
-**Optional parallel student action — if you want to be ready for Phase 5's evaluation:**
+**Optional parallel student action — none for Step 3.9. You can smoke-test the 4 LLMs any time you want to (already done for Phi-3 + TinyLlama; Llama 3.2 + Mistral are queued if you want to round it out):**
 
-1. Download the two secondary models (~6.5 GB total) so the eval set can compare:
-   ```bash
-   make download-llm-all   # Phi-3 (already done) + TinyLlama + Llama 3.2 + Mistral
-   ```
-   Mistral 7B is optional and large (~4 GB); you can skip it with:
-   ```bash
-   python scripts/download_models.py --model tinyllama-1.1b
-   python scripts/download_models.py --model llama-3.2-3b
-   ```
-2. After downloading, restart llama-server with the new model and run the smoke test:
-   ```bash
-   # Stop the current llama-server (Ctrl-C), then:
-   make run-llm  # with the new GGUF in models/
+```bash
+# In terminal 1:
+make run-llm LLM_MODEL=llama-3.2-3b
+# In terminal 2:
+make smoke-llm LLM_MODEL=llama-3.2-3b
+
+# Same for mistral (slower — ~2 tok/s on the laptop):
+make run-llm LLM_MODEL=mistral-7b
+make smoke-llm LLM_MODEL=mistral-7b
+```
    # In another terminal:
    make smoke-llm
    ```
@@ -287,10 +285,13 @@ This section is the **running log of every step executed**, in execution order. 
 | 3.3 | Install system deps for llama.cpp + OpenBLAS | ✅ Done | `aca827c` | `chore(deps): add system dep installer and native build manifest (Step 3.3)` | Installed libopenblas-dev 0.3.26, liblapack-dev, tree via apt. Added scripts/install_system_deps.sh (idempotent, --check, --with-extras), docs/BUILDS.md (build manifest with placeholders for llama.cpp SHA), 3 new Makefile targets (deps-system, deps-verify, deps-extras) + 3 placeholders for Step 3.4 (llama-dir, build-llamacpp, build). |
 | 3.4 | Build llama.cpp from source with OpenBLAS | ✅ Done | `2b61567` | `feat(llm): build llama.cpp with OpenBLAS (Step 3.4)` | Cloned llama.cpp at tag `gguf-v0.19.0` (commit `a290ce62`); built with `-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS`; binary 9.4 MB; OpenBLAS linked (verified via ldd). `scripts/verify_llamacpp.py` passes 7/7 checks. **Colon-path workaround:** because project path contains `:`, GNU Make can't parse Makefile targets, so the build was diverted to `/tmp/llamacpp-build/` and symlinked back into `llama.cpp/build/` (BUILDS.md §2.2.1). |
 | 3.5 | Download Phi-3 Mini 3.8B GGUF | ✅ Done | `cf796b9` | `feat(models): add GGUF downloader with SHA-256 verification (Step 3.5)` | Added `src/tinyrag/models/{registry,downloader}.py` (canonical 4-model catalog: Phi-3 primary, TinyLlama/Llama 3.2/Mistral for eval), `scripts/download_models.py` (CLI with --list, --model, --all, --verify-only, --force, --json), `docs/MODELS.md` (human-readable catalog), 15 hermetic pytest tests (registry shape, idempotency, checksum rejection, HTTP Range resume, progress callbacks, CLI). Uses stdlib `urllib` (no new dep). Standardised on `models/<id>.gguf` on-disk naming. **Model file itself is NOT yet on disk** — student runs `make download-llm` to fetch ~2.3 GB Phi-3 in Step 3.6. |
-| 3.6 | 🛑 RISK GATE: First llama.cpp server run on laptop | ✅ Done | (same commit as 3.7 — combined) | `feat(llm): add LLMClient Protocol + LlamaCppClient + smoke test (Step 3.7)` | Student action completed: `make download-llm` (2.3 GB Phi-3 fetched, SHA-256 verified against registry) → `make run-llm` → `curl http://127.0.0.1:8080/v1/models` returned HTTP 200 with the expected model metadata. Confirms the entire native + model stack is wired end-to-end. |
-| 3.7 | Smoke test: llama-server runs + responds (via LLMClient) | ✅ Done | `ee984c0` | `feat(llm): add LLMClient Protocol + LlamaCppClient + smoke test (Step 3.7)` | Added `src/tinyrag/generation/{__init__,llm_client}.py` (~430 lines): `LLMClient` `@runtime_checkable` Protocol, `FakeLLMClient` deterministic stub (for tests / offline dev), `LlamaCppClient` real HTTP/SSE client (talks to llama-server's `/v1/chat/completions` with stream=true, parses Server-Sent Events, extracts `choices[].delta.content`, terminates on `[DONE]`, captures `usage` block, falls back to whitespace-split token estimation when usage is missing). Typed exception hierarchy: `LLMError` → `LLMUnavailableError` (5xx, connection, timeout) / `LLMRefusedError` (4xx). Lazy httpx.Client ownership. Plus `scripts/smoke_test_llm.py` (CLI: `--model`, `--all`, `--base-url`, `--prompt`, `--max-tokens`, `--models-dir`, `--json`) and `tests/test_llm_client.py` — **31 hermetic tests** using `httpx.MockTransport` covering: ChatMessage shape, Protocol duck-typing (no inheritance), FakeLLMClient canned responses + overrides + raise_after_tokens, LlamaCppClient SSE parsing (concatenation, [DONE] termination, malformed lines, role-only chunks), 5xx/4xx/connection error mapping, lazy client ownership, multi-message (system+user) roundtrip. New Makefile targets: `smoke-llm`, `smoke-llm-all`. Full suite: **78/78 tests pass** (was 47, added 31). No new runtime deps — `httpx` was already pinned. |
-| 3.8 | Write top-level `config.yaml` with all paths | ⏳ Next | — | — | Mechanical: aggregate every path/port the FastAPI app will read at runtime. |
-| 3.9 | Confirm repo structure matches `06_roadmap_v2.md` Phase 3 done-state | ⬜ Pending | — | — | |
+| 3.6 | 🛑 RISK GATE: First llama.cpp server run on laptop | ✅ Done | `ee984c0` | `feat(llm): add LLMClient Protocol + LlamaCppClient + smoke test (Step 3.7 — note: see 3.7 below for numbering correction)` | Student action completed: `make download-llm` (2.3 GB Phi-3 fetched, SHA-256 verified against registry) → `make run-llm` → `curl http://127.0.0.1:8080/v1/models` returned HTTP 200 with the expected model metadata. Confirms the entire native + model stack is wired end-to-end. **Numbering note:** the commit subject says "Step 3.7" because at the time I conflated the LLM seam + smoke test under one commit. The actual roadmap ordering is 3.6 = first server run, 3.7 = download comparison models (next row), 3.8 = synthetic sensors (this commit). |
+| 3.7 | Download comparison models (TinyLlama, Llama 3.2 3B) | ✅ Done | `ee984c0` (+ 3 fix commits: `098d438`, `412e7f3`, `51e9f6e`) | same as 3.6 (LLMClient commit) | Student action completed: downloaded tinyllama-1.1b (637 MB) and llama-3.2-3b (1.88 GB) via `scripts/download_models.py`. **Mistral 7B fix in `412e7f3`:** original TheBloke repo returned 401; switched to bartowski mirror and re-verified (4.37 GB public mirror, HTTP 200). **Truncation fix in `51e9f6e`:** Llama 3.2 first download silently stopped at 753 MB of the expected 1.88 GB and the manifest recorded a "valid" SHA for the truncated bytes; llama-server later failed with `tensor 'blk.15.ffn_up.weight' data is not within the file bounds`. Fixed in `_fetch` (short-read guard vs Content-Length) and `download` (registry `expected_size_bytes` cross-check, 5% tolerance). 3 new tests in `TestTruncationGuard`. Student re-downloaded Llama 3.2 — 1.88 GB clean. All 4 models (`phi-3-mini`, `tinyllama-1.1b`, `llama-3.2-3b`, `mistral-7b`) verified end-to-end. |
+| 3.7a | LLMClient Protocol + LlamaCppClient + smoke test | ✅ Done | `ee984c0` | `feat(llm): add LLMClient Protocol + LlamaCppClient + smoke test (Step 3.7)` | Added `src/tinyrag/generation/{__init__,llm_client}.py` (~430 lines): `LLMClient` `@runtime_checkable` Protocol, `FakeLLMClient` deterministic stub (for tests / offline dev), `LlamaCppClient` real HTTP/SSE client (talks to llama-server's `/v1/chat/completions` with stream=true, parses Server-Sent Events, extracts `choices[].delta.content`, terminates on `[DONE]`, captures `usage` block, falls back to whitespace-split token estimation when usage is missing). Typed exception hierarchy: `LLMError` → `LLMUnavailableError` (5xx, connection, timeout) / `LLMRefusedError` (4xx). Lazy httpx.Client ownership. Plus `scripts/smoke_test_llm.py` (CLI: `--model`, `--all`, `--base-url`, `--prompt`, `--max-tokens`, `--models-dir`, `--json`) and `tests/test_llm_client.py` — **31 hermetic tests** using `httpx.MockTransport` covering: ChatMessage shape, Protocol duck-typing (no inheritance), FakeLLMClient canned responses + overrides + raise_after_tokens, LlamaCppClient SSE parsing (concatenation, [DONE] termination, malformed lines, role-only chunks), 5xx/4xx/connection error mapping, lazy client ownership, multi-message (system+user) roundtrip. New Makefile targets: `smoke-llm`, `smoke-llm-all`. **This is technically an "extra" step that doesn't appear in the roadmap by name** — the roadmap's Phase 3 only requires the LLM to be downloadable + runnable, but writing the LLMClient Protocol now means Phase 4 (FastAPI) can start straight away. Documented here so future contributors know where the LLM seam lives. |
+| 3.8 | Generate synthetic sensor data | ✅ Done | _(short SHA pending push)_ | `feat(sensors): add 30-day synthetic sensor generator (Step 3.8)` | Added `scripts/generate_synthetic_sensors.py` (~480 lines): numpy + pandas, SEED=42 reproducibility, 5-min resolution, 6 sensors (living_room_temp, living_room_hum, bedroom_temp, bedroom_hum, kitchen_motion, house_energy), long-format CSV output to `data/sensor_logs/synthetic_30d.csv` (gitignored). Per-sensor physics: temperature = daily sinusoid + per-room offset + Gaussian noise; humidity = weakly anti-correlated with temp, bounded [30, 80]; motion = Bernoulli with hour-of-day + weekday/weekend rates; energy = base draw + morning/evening peaks + weekend multiplier + 5% appliance surges. CLI: `--start`, `--days`, `--interval-min`, `--out`, `--seed`, `--summary`, `--json`. Generated 51,840 rows × 6 sensors (30 days × 288 ticks/day). Plus `tests/test_generate_synthetic_sensors.py` — **34 hermetic tests** covering: schema conformance (§6.1 columns + dtypes + canonical sensors), no NaN, realistic value ranges (temp 15-30, humidity 30-80, motion 0/1, energy ≥ 0), daily patterns (afternoon temp peak, dinner motion peak), SEED=42 reproducibility (same/different seed → same/different output), summary helper, time-grid correctness (5-min spacing, no duplicates per sensor), custom start date. Full suite: **115/115 tests pass** (was 81, added 34). No new runtime deps — `pandas` + `numpy` were already pinned. |
+| 3.9 | Phase 3 checkpoint: end-to-end smoke test | ⏳ Next | — | — | One-script checkpoint that exercises the entire Phase 3 stack end-to-end (config + llama-server + query + response). |
+| 4.1 | Initialize the project skeleton (folders only) | ⬜ Pending | — | — | Per docs/06_roadmap_v2.md Phase 4. |
+| 4.2 | Set up `config.yaml` + `Settings` loader | ⬜ Pending | — | — | Per docs/06_roadmap_v2.md Phase 4. |
 
 ### 11.2 Phase 4 — Build (laptop)
 
