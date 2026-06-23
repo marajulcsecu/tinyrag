@@ -141,6 +141,19 @@ temp/
 nul
 
 # ----------------------------------------------------------------------------
+# 8. Native dependencies (cloned, not source)
+# ----------------------------------------------------------------------------
+# llama.cpp is a third-party C++ project cloned by scripts/build_llamacpp.sh.
+# We don't ship it in our repo (it's ~200 MB cloned, ~1.5 GB after build).
+# Same for any other native source tree we might vendor later.
+llama.cpp/
+/llama.cpp
+third_party/
+/third_party
+build/
+/build
+
+# ----------------------------------------------------------------------------
 # 8. Allow-list (force-include specific files even if parent dir is ignored)
 # ----------------------------------------------------------------------------
 # Keep the directory structure visible even when empty.

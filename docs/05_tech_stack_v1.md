@@ -17,7 +17,7 @@ After reading this, you should be able to:
 - Justify every dependency choice in your final report.
 - Know the difference between the **Pi 5 stack** and the **laptop stack**.
 
-> **Pinning policy:** all Python deps are pinned to exact versions (`==`). C++ deps (llama.cpp) are pinned to a specific commit. This ensures reproducibility per NFR-31 and NFR-21.
+> **Pinning policy:** all Python deps are pinned to exact versions (`==`). C++ deps (llama.cpp) are pinned to a versioned `gguf-vX.Y.Z` tag. This ensures reproducibility per NFR-31 and NFR-21.
 
 ---
 
@@ -28,7 +28,7 @@ After reading this, you should be able to:
 | **OS** | Raspberry Pi OS 64-bit / Ubuntu 24.04 | ✅ | ❌ | latest LTS |
 | **OS (laptop)** | Ubuntu 24.04.4 LTS | ❌ | ✅ | confirmed |
 | **Python** | CPython | 3.11 | 3.12 | exact |
-| **LLM engine** | llama.cpp (HTTP server) | ✅ | ✅ | commit pinned (see §3.3) |
+| **LLM engine** | llama.cpp (HTTP server) | ✅ | ✅ | tag `gguf-v0.19.0` pinned (see §3.2) |
 | **Primary LLM** | Phi-3 Mini 3.8B Instruct Q4_K_M | ✅ | ✅ | GGUF |
 | **Comparison LLM 1** | TinyLlama 1.1B Chat Q4_K_M | ✅ | ✅ | GGUF |
 | **Comparison LLM 2** | Llama 3.2 3B Instruct Q4_K_M | ✅ | ✅ | GGUF |
@@ -65,13 +65,13 @@ After reading this, you should be able to:
 | **Mature, stable** | Used by Ollama, LM Studio, text-generation-webui. |
 | **OpenAI-compatible HTTP** | The `--server` mode exposes `/v1/chat/completions`, making integration trivial. |
 
-### 3.2 Pinned Version (commit)
+### 3.2 Pinned Version (tag)
 
 ```
-llama.cpp: commit 4e3517c4bbf7d1c7f1b4f7d0e4e7d6b3c8e2a5d9  (a known-stable commit from 2024-12)
+llama.cpp: tag gguf-v0.19.0  (released 2026-05-06; commit a290ce62)
 ```
 
-(We pin to a specific commit rather than `main` or a tag, because llama.cpp tags are infrequent and `main` is unstable. The actual commit hash will be confirmed at the time we run `setup.sh` and recorded in a `BUILDS.md` file.)
+(We pin to a versioned `gguf-vX.Y.Z` tag — llama.cpp's stable release surface, released roughly monthly — rather than `master` or daily `bNNNN` builds. The actual SHA is recorded in `docs/BUILDS.md` §2.1.)
 
 ### 3.3 Build Flags
 

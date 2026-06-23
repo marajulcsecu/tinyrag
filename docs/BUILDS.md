@@ -44,23 +44,24 @@ These are installed by `scripts/install_system_deps.sh`. Full per-package ration
 
 ## 2. llama.cpp (LLM inference engine)
 
-### 2.1 Pinned Commit
+### 2.1 Pinned Version
 
 | Field | Value | Pinned on | Verified by |
 |-------|-------|-----------|-------------|
 | **Repo** | `https://github.com/ggerganov/llama.cpp.git` | — | `git -C llama.cpp remote -v` |
-| **Commit SHA** | `b4561` | _(to be filled by Step 3.4 once built)_ | `git -C llama.cpp rev-parse HEAD` |
-| **Branch** | `master` | — | `git -C llama.cpp branch --show-current` |
+| **Tag** | `gguf-v0.19.0` | 2026-06-23 (Step 3.4) | `git -C llama.cpp describe --tags` |
+| **Commit SHA** | `a290ce626663dae1d54f70bce3ca6d8f67aab62f` | 2026-06-23 | `git -C llama.cpp rev-parse HEAD` |
+| **Tag date** | 2026-05-06 | — | `git -C llama.cpp log -1 --format=%ci` |
 | **Submodules** | `ggml` (recursive) | — | `git -C llama.cpp submodule status` |
 
-> **Why pin by commit, not tag?** Tags are immutable, but llama.cpp's master moves fast and many "stable" builds live on commits between tags. Pinning by SHA gives byte-identical rebuilds.
+> **Why pin by tag, not master?** `master` moves daily and breaks reproducibility. llama.cpp tags in the `bNNNN` range are auto-generated daily builds; the `gguf-vX.Y.Z` tags are versioned releases (roughly monthly) and are the stable surface for downstream users.
 
 ### 2.2 Build Flags (laptop / Ubuntu 24.04 / x86_64)
 
 | Flag | Value | Why |
 |------|-------|-----|
 | `CMAKE_BUILD_TYPE` | `Release` | Strips debug symbols, enables `-O3` |
-| `GGML_OPENBLAS` | `ON` | Use OpenBLAS for matrix math |
+| `GGML_BLAS` | `ON` | **Use OpenBLAS for matrix math.** (Note: the legacy `GGML_OPENBLAS=ON` flag is deprecated in `gguf-v0.19.0` and is silently ignored — only `GGML_BLAS=ON` works.) |
 | `GGML_BLAS_VENDOR` | `OpenBLAS` | Disambiguate from Accelerate / MKL |
 | `GGML_NATIVE` | _unset (defaults to OFF)_ | We want a portable binary, not `-march=native` |
 | `GGML_CPU_ALL_VARIANTS` | _unset_ | Not needed unless we want every quantized format |
@@ -71,6 +72,14 @@ These are installed by `scripts/install_system_deps.sh`. Full per-package ration
 | `CMAKE_CXX_COMPILER` | system g++ | — |
 
 **Parallel build:** `cmake --build build --config Release -j 10` (i5-1235U has 10 cores, 12 threads).
+
+### 2.2.1 Build Location (colon-in-path workaround)
+
+**Default:** source and build live in `${PROJECT_ROOT}/llama.cpp/` and `${PROJECT_ROOT}/llama.cpp/build/`.
+
+**Workaround (current laptop):** the project path `~/Desktop/Capstone Project/TinyRAG: Retrieval-Augmented Generation forEdge IoT./` contains colons, which GNU Make cannot parse inside auto-generated Makefile target names. To work around this, the build script `scripts/build_llamacpp.sh` auto-detects a colon in `PROJECT_ROOT` and diverts the source tree to `/tmp/llamacpp-build/` and the build directory to `/tmp/llamacpp-build/build/`. After building, the script symlinks `${PROJECT_ROOT}/llama.cpp/build` → `/tmp/llamacpp-build/build` so the rest of the toolchain (Makefile, scripts, run.sh) finds the binary at the expected path.
+
+**Long-term fix:** rename the project directory to remove the colon (e.g. `TinyRAG-EdgeIoT/`). This is tracked as a P1 cleanup task.
 
 ### 2.3 Pi 5 Build Flags (for Phase 6 — placeholder)
 
@@ -96,10 +105,41 @@ ldd llama.cpp/build/bin/llama-server | grep -E "openblas|blas"
 
 # 3. Binary runs and reports its version
 ./llama.cpp/build/bin/llama-server --version
-# Expected: version: b4561 (or the pinned commit's short SHA)
+# Expected: version: a290ce6 (or the pinned tag's short SHA)
+
+# 4. (preferred) Run the Python verification script
+python scripts/verify_llamacpp.py
+# Expected: "7/7 checks passed"
 ```
 
-If `ldd` shows NO openblas line, the build fell back to the slow generic BLAS. Rebuild with `GGML_OPENBLAS=ON GGML_BLAS_VENDOR=OpenBLAS`.
+If `ldd` shows NO openblas line, the build fell back to the slow generic BLAS. Rebuild with `GGML_BLAS=ON GGML_BLAS_VENDOR=OpenBLAS`.
+
+### 2.5 Verified Build Record (laptop, 2026-06-23)
+
+The Step 3.4 build was completed and verified on 2026-06-23. Recorded here so future maintainers can compare against a known-good build.
+
+| Field | Value |
+|-------|-------|
+| **Date (UTC)** | 2026-06-23 |
+| **Host** | Dell Inspiron 15 3520 (i5-1235U, 10 cores, Ubuntu 24.04.4 LTS) |
+| **OS kernel** | Linux 6.8.x |
+| **Compiler** | gcc 13.3.0 |
+| **CMake** | 3.28.3 |
+| **OpenBLAS** | 0.3.26 (system package `libopenblas-dev`) |
+| **OpenMPI / BLAS deps** | `liblapack-dev` 3.11.0 |
+| **llama.cpp tag** | `gguf-v0.19.0` |
+| **llama.cpp commit** | `a290ce626663dae1d54f70bce3ca6d8f67aab62f` |
+| **Build dir** | `/tmp/llamacpp-build/build` (colon-in-path workaround) |
+| **Project symlink** | `llama.cpp/build -> /tmp/llamacpp-build/build` |
+| **Binary size** | 9,436,656 bytes (~9.4 MB) |
+| **Binary version** | `version: 9046 (a290ce626)` |
+| **OpenBLAS linked?** | YES — `libopenblas.so.0 => /lib/x86_64-linux-gnu/libopenblas.so.0` |
+| **Verification** | `python scripts/verify_llamacpp.py` → 7/7 checks passed |
+| **Build wall time** | ~7 min (first time) — incremental rebuilds <30 s |
+
+**Known caveats:**
+- The build directory is in `/tmp` (not in the project) due to the colon-in-path workaround (§2.2.1). It will be wiped on reboot. Re-run `bash scripts/build_llamacpp.sh` after a reboot to restore.
+- After renaming the project directory to remove the colon, the build will land in `${PROJECT_ROOT}/llama.cpp/build/` as originally designed.
 
 ---
 
@@ -159,6 +199,8 @@ Never bump a native version in a hurry — these are the load-bearing pieces of 
 | 2 | The CUDA build of `torch` was installed (Step 3.2). Harmless but ~2 GB wasted. | Install via `--index-url https://download.pytorch.org/whl/cpu` on next clean install. | Step 3.2 hardening |
 | 3 | OpenBLAS thread auto-detection sometimes over-subscribes on hyperthreaded CPUs. | Pass `OPENBLAS_NUM_THREADS=8` (or actual core count) when starting llama-server. | Step 3.7 |
 | 4 | Pi 5 build flags are placeholders only. | Real Pi build script will be created in Step 6.4. | Phase 6 |
+| 5 | **Project path contains `:` — GNU Make cannot parse the auto-generated Makefiles.** | Build is diverted to `/tmp/llamacpp-build/` and symlinked into the project. See §2.2.1. | P1 — rename the project directory to drop the colon. |
+| 6 | The legacy `GGML_OPENBLAS=ON` cmake flag is silently ignored in `gguf-v0.19.0`+. Builds with this flag appear to succeed but don't actually link OpenBLAS. | Use `GGML_BLAS=ON` + `GGML_BLAS_VENDOR=OpenBLAS` (see §2.2). The build script handles this correctly. | Resolved in Step 3.4. |
 
 ---
 
