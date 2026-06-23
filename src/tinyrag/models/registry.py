@@ -183,17 +183,21 @@ MODEL_REGISTRY: Mapping[str, ModelEntry] = {
     "mistral-7b": ModelEntry(
         model_id="mistral-7b",
         display_name="Mistral 7B Instruct v0.3 (Q4_K_M)",
-        hf_repo="TheBloke/Mistral-7B-Instruct-v0.3-GGUF",
-        hf_filename="mistral-7b-instruct-v0.3.Q4_K_M.gguf",
+        # bartowski hosts the same Q4_K_M weights as TheBloke did, but
+        # is publicly accessible. TheBloke's repo returned 401 on
+        # 2026-06-23 (private/moved), so we point here instead.
+        hf_repo="bartowski/Mistral-7B-Instruct-v0.3-GGUF",
+        hf_filename="Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
         quantization="Q4_K_M",
-        expected_size_bytes=4_000_000_000,  # ~4 GB
+        expected_size_bytes=4_372_812_000,  # 4.37 GB (verified 2026-06-23)
         expected_sha256="",
         license="Apache-2.0",
         role="eval-large",
         intended_context=8192,
         notes=(
             "Optional 4th model. Too slow on the Pi (~2 tok/s) but useful "
-            "on the laptop to show what a 'real' LLM can do."
+            "on the laptop to show what a 'real' LLM can do. Mirrored "
+            "from TheBloke → bartowski on 2026-06-23 (TheBloke 401)."
         ),
     ),
 }

@@ -41,7 +41,7 @@ The machine-readable version of this catalog lives in
 | `phi-3-mini` | Phi-3 Mini 3.8B Instruct (4k) | Q4_K_M | ~2.3 GB | `microsoft/Phi-3-mini-4k-instruct-gguf` | MIT | **primary** | ✅ |
 | `tinyllama-1.1b` | TinyLlama 1.1B Chat v1.0 | Q4_K_M | ~700 MB | `TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF` | Apache-2.0 | eval-small | ✅ |
 | `llama-3.2-3b` | Llama 3.2 3B Instruct | Q4_K_M | ~1.8 GB | `bartowski/Llama-3.2-3B-Instruct-GGUF` | Llama3.2 (community) | eval-medium | ✅ |
-| `mistral-7b` | Mistral 7B Instruct v0.3 | Q4_K_M | ~4.0 GB | `TheBloke/Mistral-7B-Instruct-v0.3-GGUF` | Apache-2.0 | eval-large | ⚠️ optional (laptop only) |
+| `mistral-7b` | Mistral 7B Instruct v0.3 | Q4_K_M | ~4.0 GB | `bartowski/Mistral-7B-Instruct-v0.3-GGUF` | Apache-2.0 | eval-large | ⚠️ optional (laptop only) |
 
 ### 1.1 Per-model details
 
@@ -76,10 +76,11 @@ The machine-readable version of this catalog lives in
 #### `mistral-7b` — Optional 4th comparison
 
 - **On disk:** `models/mistral-7b.gguf`
-- **HF URL:** <https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/mistral-7b-instruct-v0.3.Q4_K_M.gguf>
-- **Filename in repo:** `mistral-7b-instruct-v0.3.Q4_K_M.gguf`
+- **HF URL:** <https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf>
+- **Filename in repo:** `Mistral-7B-Instruct-v0.3-Q4_K_M.gguf`
 - **Context length:** 8192 tokens
 - **Why this one:** shows what a "real" LLM (7B) can do. Will not be benchmarked on the Pi 5 (~2 tok/s with Q4_K_M is too slow for the demo); evaluated only on the laptop.
+- **Mirror history:** originally TheBloke; switched to bartowski on 2026-06-23 because TheBloke's repo started returning 401.
 
 ---
 
