@@ -35,8 +35,9 @@ SHELL     := /usr/bin/env bash
 
 # These targets don't create a file with that name; declare them phony.
 .PHONY: help venv install install-dev upgrade freeze lint format typecheck \
-        test test-fast test-cov smoke run run-api run-llm clean clean-pyc \
-        clean-venv clean-all verify deps-system deps-verify deps-extras \
+        test test-fast test-cov smoke smoke-llm smoke-llm-all run run-api \
+        run-llm clean clean-pyc clean-venv clean-all verify \
+        deps-system deps-verify deps-extras \
         build build-llamacpp llama-dir \
         list-models download-llm download-llm-all download-llm-force \
         verify-llm verify-llm-all setup-laptop
@@ -68,7 +69,7 @@ help:  ## Show this help (default target)
 	@echo "Models:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
-	         /list-models|download|verify-llm|setup-laptop/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	         /list-models|download|verify-llm|setup-laptop|smoke-llm/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Native build:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -225,6 +226,22 @@ verify-llm:  ## Re-hash on-disk models against the manifest (no network)
 
 verify-llm-all:  ## Re-hash every model on disk (no network)
 	@$(PYTHON) scripts/download_models.py --verify-only --all --models-dir $(MODELS_DIR)
+
+# ---- Step 3.7: Smoke test the LLM client against a running llama-server --
+# These targets assume llama-server is up (`make run-llm` in another
+# terminal). They exercise the OpenAI-compatible /v1/chat/completions
+# endpoint end-to-end through our LlamaCppClient and report
+# tokens/sec. Run from inside the project root.
+SMOKE_BASE_URL ?= http://127.0.0.1:8080
+
+smoke-llm:  ## Smoke-test the primary LLM ($(LLM_MODEL)) — requires llama-server running
+	@echo ">> Smoke-testing $(LLM_MODEL) at $(SMOKE_BASE_URL)"
+	@$(PYTHON) scripts/smoke_test_llm.py --model $(LLM_MODEL) --base-url $(SMOKE_BASE_URL)
+
+smoke-llm-all:  ## Smoke-test every model on disk — requires llama-server to be restarted per model
+	@echo ">> Smoke-testing every model on disk at $(SMOKE_BASE_URL)"
+	@echo "   NOTE: llama-server holds one model at a time — restart it between runs."
+	@$(PYTHON) scripts/smoke_test_llm.py --all --base-url $(SMOKE_BASE_URL) --models-dir $(MODELS_DIR)
 
 # Convenience: build + download primary in one shot.
 setup-laptop: build download-llm  ## Build llama.cpp + download the primary LLM

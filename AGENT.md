@@ -2,16 +2,16 @@
 
 > **Purpose:** This file is the single source of truth for anyone (human or AI) picking up the TinyRAG project. If you are a new agent, **read this first** before doing anything. It tells you what the project is, what decisions have been made, where things live, and what to do next.
 
-**Last updated:** 2026-06-23 (update 13)
-**Project status:** Step 3.5 complete — GGUF downloader + catalog (no model file yet; user action)
-**Next milestone:** Step 3.6 — 🛑 RISK GATE: First llama.cpp server run on laptop (user runs `make download-llm` then `make run-llm`)
+**Last updated:** 2026-06-23 (update 14)
+**Project status:** Step 3.7 complete — LLMClient Protocol + LlamaCppClient + smoke test (primary model confirmed working end-to-end)
+**Next milestone:** Step 3.8 — top-level `config.yaml` with all paths
 **Canonical roadmap:** `docs/06_roadmap_v2.md` (the older `v1` and `laptop_v1` are historical only)
 **Remote:** `https://github.com/marajulcsecu/tinyrag`
-**Tip of `main`:** `cf796b9` (see §11 Build Journal)
+**Tip of `main`:** (see §11 Build Journal — pending this commit)
 **Venv location:** `~/venvs/tinyrag` (symlinked as `.venv` in project root)
 **OpenBLAS version:** 0.3.26 (verified via pkg-config)
 **llama.cpp:** tag `gguf-v0.19.0` (commit `a290ce626663dae1d54f70bce3ca6d8f67aab62f`) — built at `/tmp/llamacpp-build/build/` (colon-path workaround; symlinked into `llama.cpp/build/`)
-**Models on disk:** none yet — see `docs/MODELS.md` for the catalog
+**Primary model on disk:** phi-3-mini (~2.3 GB, SHA-256 verified) — see `docs/MODELS.md` for the full catalog
 
 ---
 
@@ -220,31 +220,32 @@ TinyRAG/
 - ✅ All major decisions made
 - ✅ All 8 planning docs complete (Phase 0–2 done)
 - ✅ Evaluation methodology complete (gold set + scoring rubric)
-- ✅ **Steps 3.1–3.5 complete** — repo, env, system deps, llama.cpp, and model downloader
-- ⏳ Next: Step 3.6 — 🛑 RISK GATE: First llama.cpp server run on laptop
+- ✅ **Steps 3.1–3.7 complete** — repo, env, system deps, llama.cpp, model downloader, llama-server runs, and LLMClient Protocol + LlamaCppClient + smoke test
+- ⏳ Next: Step 3.8 — top-level `config.yaml` with all paths
 
-**Immediate next step (Step 3.6 — student action):**
-1. Download the primary LLM (~2.3 GB):
+**Immediate next step (Step 3.8 — agent action):**
+
+Step 3.8 is mostly mechanical — wire every path the system will need at runtime into `config.yaml` so Phase 4's FastAPI app can `from tinyrag.config import settings` instead of hardcoding paths. No student action required for 3.8 itself.
+
+**Optional parallel student action — if you want to be ready for Phase 5's evaluation:**
+
+1. Download the two secondary models (~6.5 GB total) so the eval set can compare:
    ```bash
-   make download-llm
+   make download-llm-all   # Phi-3 (already done) + TinyLlama + Llama 3.2 + Mistral
    ```
-   or for all eval models (~8.8 GB total):
+   Mistral 7B is optional and large (~4 GB); you can skip it with:
    ```bash
-   make download-llm-all
+   python scripts/download_models.py --model tinyllama-1.1b
+   python scripts/download_models.py --model llama-3.2-3b
    ```
-2. Verify the SHA-256:
+2. After downloading, restart llama-server with the new model and run the smoke test:
    ```bash
-   make verify-llm
+   # Stop the current llama-server (Ctrl-C), then:
+   make run-llm  # with the new GGUF in models/
+   # In another terminal:
+   make smoke-llm
    ```
-3. Start llama-server and test a prompt:
-   ```bash
-   make run-llm
-   ```
-   In another terminal:
-   ```bash
-   curl http://127.0.0.1:8080/v1/models
-   ```
-4. Once llama-server responds with HTTP 200, Step 3.6 is done.
+3. If `make smoke-llm` returns "All 1 model(s) passed", the LLM seam is verified end-to-end.
 
 ---
 
@@ -286,9 +287,9 @@ This section is the **running log of every step executed**, in execution order. 
 | 3.3 | Install system deps for llama.cpp + OpenBLAS | ✅ Done | `aca827c` | `chore(deps): add system dep installer and native build manifest (Step 3.3)` | Installed libopenblas-dev 0.3.26, liblapack-dev, tree via apt. Added scripts/install_system_deps.sh (idempotent, --check, --with-extras), docs/BUILDS.md (build manifest with placeholders for llama.cpp SHA), 3 new Makefile targets (deps-system, deps-verify, deps-extras) + 3 placeholders for Step 3.4 (llama-dir, build-llamacpp, build). |
 | 3.4 | Build llama.cpp from source with OpenBLAS | ✅ Done | `2b61567` | `feat(llm): build llama.cpp with OpenBLAS (Step 3.4)` | Cloned llama.cpp at tag `gguf-v0.19.0` (commit `a290ce62`); built with `-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS`; binary 9.4 MB; OpenBLAS linked (verified via ldd). `scripts/verify_llamacpp.py` passes 7/7 checks. **Colon-path workaround:** because project path contains `:`, GNU Make can't parse Makefile targets, so the build was diverted to `/tmp/llamacpp-build/` and symlinked back into `llama.cpp/build/` (BUILDS.md §2.2.1). |
 | 3.5 | Download Phi-3 Mini 3.8B GGUF | ✅ Done | `cf796b9` | `feat(models): add GGUF downloader with SHA-256 verification (Step 3.5)` | Added `src/tinyrag/models/{registry,downloader}.py` (canonical 4-model catalog: Phi-3 primary, TinyLlama/Llama 3.2/Mistral for eval), `scripts/download_models.py` (CLI with --list, --model, --all, --verify-only, --force, --json), `docs/MODELS.md` (human-readable catalog), 15 hermetic pytest tests (registry shape, idempotency, checksum rejection, HTTP Range resume, progress callbacks, CLI). Uses stdlib `urllib` (no new dep). Standardised on `models/<id>.gguf` on-disk naming. **Model file itself is NOT yet on disk** — student runs `make download-llm` to fetch ~2.3 GB Phi-3 in Step 3.6. |
-| 3.6 | 🛑 RISK GATE: First llama.cpp server run on laptop | ⏳ Next | — | — | Student action: `make download-llm && make run-llm` then `curl http://127.0.0.1:8080/v1/models` in another terminal. See docs/06_roadmap_v2.md §3.6 for the exact prompt tests. |
-| 3.7 | Smoke test: llama-server runs + responds | ⬜ Pending | — | — | Manual smoke test |
-| 3.8 | Write top-level `config.yaml` with all paths | ⬜ Pending | — | — | |
+| 3.6 | 🛑 RISK GATE: First llama.cpp server run on laptop | ✅ Done | (same commit as 3.7 — combined) | `feat(llm): add LLMClient Protocol + LlamaCppClient + smoke test (Step 3.7)` | Student action completed: `make download-llm` (2.3 GB Phi-3 fetched, SHA-256 verified against registry) → `make run-llm` → `curl http://127.0.0.1:8080/v1/models` returned HTTP 200 with the expected model metadata. Confirms the entire native + model stack is wired end-to-end. |
+| 3.7 | Smoke test: llama-server runs + responds (via LLMClient) | ✅ Done | _(short SHA pending push)_ | `feat(llm): add LLMClient Protocol + LlamaCppClient + smoke test (Step 3.7)` | Added `src/tinyrag/generation/{__init__,llm_client}.py` (~370 lines): `LLMClient` `@runtime_checkable` Protocol, `FakeLLMClient` deterministic stub (for tests / offline dev), `LlamaCppClient` real HTTP/SSE client (talks to llama-server's `/v1/chat/completions` with stream=true, parses Server-Sent Events, extracts `choices[].delta.content`, terminates on `[DONE]`, captures `usage` block, falls back to whitespace-split token estimation when usage is missing). Typed exception hierarchy: `LLMError` → `LLMUnavailableError` (5xx, connection, timeout) / `LLMRefusedError` (4xx). Lazy httpx.Client ownership. Plus `scripts/smoke_test_llm.py` (CLI: `--model`, `--all`, `--base-url`, `--prompt`, `--max-tokens`, `--models-dir`, `--json`) and `tests/test_llm_client.py` — **31 hermetic tests** using `httpx.MockTransport` covering: ChatMessage shape, Protocol duck-typing (no inheritance), FakeLLMClient canned responses + overrides + raise_after_tokens, LlamaCppClient SSE parsing (concatenation, [DONE] termination, malformed lines, role-only chunks), 5xx/4xx/connection error mapping, lazy client ownership, multi-message (system+user) roundtrip. New Makefile targets: `smoke-llm`, `smoke-llm-all`. Full suite: **78/78 tests pass** (was 47, added 31). No new runtime deps — `httpx` was already pinned. |
+| 3.8 | Write top-level `config.yaml` with all paths | ⏳ Next | — | — | Mechanical: aggregate every path/port the FastAPI app will read at runtime. |
 | 3.9 | Confirm repo structure matches `06_roadmap_v2.md` Phase 3 done-state | ⬜ Pending | — | — | |
 
 ### 11.2 Phase 4 — Build (laptop)
