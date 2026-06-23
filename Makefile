@@ -35,8 +35,8 @@ SHELL     := /usr/bin/env bash
 
 # These targets don't create a file with that name; declare them phony.
 .PHONY: help venv install install-dev upgrade freeze lint format typecheck \
-        test test-fast test-cov smoke smoke-llm smoke-llm-all run run-api \
-        run-llm clean clean-pyc clean-venv clean-all verify \
+        test test-fast test-cov smoke smoke-e2e smoke-llm smoke-llm-all run \
+        run-api run-llm clean clean-pyc clean-venv clean-all verify \
         deps-system deps-verify deps-extras \
         build build-llamacpp llama-dir \
         list-models download-llm download-llm-all download-llm-force \
@@ -53,42 +53,42 @@ help:  ## Show this help (default target)
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "Environment setup:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
 	         /venv|install|upgrade|freeze/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Code quality:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
 	         /lint|format|typecheck/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Testing:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
 	         /test|smoke/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Sensors:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
 	         /sensors-/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Models:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
 	         /list-models|download|verify-llm|setup-laptop|smoke-llm/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Native build:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
 	         /deps-system|deps-verify|deps-extras|build|llama-dir/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Run:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
 	         /^run/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Cleanup:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
 	         /^clean/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
@@ -177,6 +177,21 @@ smoke:  ## Quick sanity check: imports + Python version
 	@$(PYTHON) -c "import pdfplumber, httpx, sse_starlette, structlog; print('Parsing + HTTP + logging: OK')"
 	@$(PYTHON) -c "import paho.mqtt, dateutil, pandas; print('Sensors + data: OK')"
 	@echo ">> Smoke test passed"
+
+# Phase 3 end-to-end checkpoint (docs/06_roadmap_v2.md Step 3.9).
+# Sends a hard-coded query through the LLMClient (real or fake) and
+# asserts a non-empty response. Default client is "real" so a fresh
+# laptop clone can use this as the one-shot "is everything wired?"
+# check. Pass E2E_CLIENT=fake to run hermetically without a
+# llama-server (useful in CI).
+smoke-e2e:  ## Phase 3 end-to-end smoke test — sends a query through LLMClient
+	@echo ">> Phase 3 end-to-end smoke test"
+	@if [ "$(E2E_CLIENT)" = "fake" ]; then \
+		echo "   (using FakeLLMClient — no llama-server needed)"; \
+		$(PYTHON) scripts/smoke_test.py --client fake; \
+	else \
+		$(PYTHON) scripts/smoke_test.py --client real --base-url $(SMOKE_BASE_URL); \
+	fi
 
 verify: install-dev lint smoke test-fast  ## Full verify: install + lint + smoke + fast tests
 
