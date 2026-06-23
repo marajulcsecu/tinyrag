@@ -36,7 +36,8 @@ SHELL     := /usr/bin/env bash
 # These targets don't create a file with that name; declare them phony.
 .PHONY: help venv install install-dev upgrade freeze lint format typecheck \
         test test-fast test-cov smoke run run-api run-llm clean clean-pyc \
-        clean-venv clean-all verify
+        clean-venv clean-all verify deps-system deps-verify deps-extras \
+        build build-llamacpp llama-dir
 
 
 # ---- Help -----------------------------------------------------------------
@@ -105,6 +106,18 @@ freeze:  ## Print the currently installed versions (useful for bug reports)
 	@echo ">> Installed versions:"
 	@$(PIP) freeze | grep -v "^\-e" | sort
 
+deps-system:  ## Install apt packages needed to build llama.cpp (idempotent)
+	@echo ">> Installing system dependencies (apt)"
+	@bash scripts/install_system_deps.sh
+
+deps-verify:  ## Verify system deps are installed (does NOT install)
+	@echo ">> Verifying system dependencies"
+	@bash scripts/install_system_deps.sh --check
+
+deps-extras:  ## Install optional apt extras (pkg-config, ninja-build)
+	@echo ">> Installing optional system extras"
+	@bash scripts/install_system_deps.sh --with-extras
+
 
 # ---- Code quality ---------------------------------------------------------
 
@@ -150,6 +163,28 @@ verify: install-dev lint smoke test-fast  ## Full verify: install + lint + smoke
 
 
 # ---- Run ------------------------------------------------------------------
+
+# ---- Build native components (Phase 3) ----
+# Step 3.4 — Build llama.cpp. The script is written but the build itself
+# is Step 3.4; this target is here so `make build` works end-to-end once
+# both steps are complete.
+LLAMACPP_DIR := llama.cpp
+LLAMACPP_BIN := $(LLAMACPP_DIR)/build/bin/llama-server
+
+llama-dir:  ## Clone llama.cpp source into ./llama.cpp (if not already present)
+	@if [ ! -d "$(LLAMACPP_DIR)" ]; then \
+		echo ">> Cloning llama.cpp into $(LLAMACPP_DIR)"; \
+		git clone https://github.com/ggerganov/llama.cpp.git $(LLAMACPP_DIR); \
+	else \
+		echo ">> $(LLAMACPP_DIR) already exists — skipping clone"; \
+	fi
+
+build-llamacpp: llama-dir deps-system  ## Build llama.cpp with OpenBLAS (laptop)
+	@echo ">> Building llama.cpp"
+	@bash scripts/build_llamacpp.sh
+
+build: build-llamacpp  ## Build all native components (alias for build-llamacpp in Phase 3)
+
 
 run-api:  ## Start the FastAPI dev server (Phase 4)
 	@echo ">> Starting FastAPI at http://localhost:8000"
