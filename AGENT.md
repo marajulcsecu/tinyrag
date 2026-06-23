@@ -2,12 +2,12 @@
 
 > **Purpose:** This file is the single source of truth for anyone (human or AI) picking up the TinyRAG project. If you are a new agent, **read this first** before doing anything. It tells you what the project is, what decisions have been made, where things live, and what to do next.
 
-**Last updated:** 2026-06-23 (update 17)
-**Project status:** Step 3.8 complete — 30-day synthetic sensor dataset generated
-**Next milestone:** Step 3.9 — Phase 3 end-to-end smoke test
+**Last updated:** 2026-06-23 (update 18)
+**Project status:** Step 3.9 complete — Phase 3 end-to-end smoke test green ✅
+**Next milestone:** Step 4.1 — Initialize the project skeleton (folders only)
 **Canonical roadmap:** `docs/06_roadmap_v2.md` (the older `v1` and `laptop_v1` are historical only)
 **Remote:** `https://github.com/marajulcsecu/tinyrag`
-**Tip of `main`:** `b7680d3` (see §11 Build Journal)
+**Tip of `main`:** `d882691` (see §11 Build Journal)
 **Venv location:** `~/venvs/tinyrag` (symlinked as `.venv` in project root)
 **OpenBLAS version:** 0.3.26 (verified via pkg-config)
 **llama.cpp:** tag `gguf-v0.19.0` (commit `a290ce626663dae1d54f70bce3ca6d8f67aab62f`) — built at `/tmp/llamacpp-build/build/` (colon-path workaround; symlinked into `llama.cpp/build/`)
@@ -221,29 +221,26 @@ TinyRAG/
 - ✅ All major decisions made
 - ✅ All 8 planning docs complete (Phase 0–2 done)
 - ✅ Evaluation methodology complete (gold set + scoring rubric)
-- ✅ **Steps 3.1–3.8 complete** — repo, env, system deps, llama.cpp, all 4 GGUF models, LLMClient + smoke test, and 30-day synthetic sensor data
-- ⏳ Next: Step 3.9 — Phase 3 end-to-end smoke test
+- ✅ **Phase 3 complete (Steps 3.1–3.9)** — repo, env, system deps, llama.cpp, all 4 GGUF models, LLMClient, 30-day synthetic sensor data, and the Phase 3 end-to-end smoke test
+- ⏳ Next: Step 4.1 — Initialize the project skeleton (folders only)
 
-**Immediate next step (Step 3.9 — agent action):**
+**Immediate next step (Step 4.1 — agent action):**
 
-Step 3.9 is a one-script checkpoint that exercises the entire Phase 3 stack end-to-end: starts llama-server, sends a hard-coded query, prints the response, and exits cleanly. No student action required.
+Phase 4 begins the actual RAG system build. Step 4.1 is a layout-only commit: create the `src/tinyrag/` subpackage skeleton (`ingestion/`, `retrieval/`, `generation/`, `sensors/`, `storage/`, `api/`, `ui/`) with empty `__init__.py` files and module-level docstrings explaining what each subpackage will hold. No logic yet — just the directory structure that every later Phase 4 step will drop code into.
 
-**Optional parallel student action — none for Step 3.9. You can smoke-test the 4 LLMs any time you want to (already done for Phi-3 + TinyLlama; Llama 3.2 + Mistral are queued if you want to round it out):**
+**Optional parallel student action — none for Step 4.1. You can verify the Phase 3 end-to-end smoke test any time:**
 
 ```bash
-# In terminal 1:
-make run-llm LLM_MODEL=llama-3.2-3b
-# In terminal 2:
-make smoke-llm LLM_MODEL=llama-3.2-3b
+# Terminal 1 (in one window — leave running):
+make run-llm LLM_MODEL=phi-3-mini
 
-# Same for mistral (slower — ~2 tok/s on the laptop):
-make run-llm LLM_MODEL=mistral-7b
-make smoke-llm LLM_MODEL=mistral-7b
+# Terminal 2 (in another window):
+make smoke-e2e   # real client — talks to llama-server
+# or, hermetic (no llama-server needed):
+make smoke-e2e E2E_CLIENT=fake
 ```
-   # In another terminal:
-   make smoke-llm
-   ```
-3. If `make smoke-llm` returns "All 1 model(s) passed", the LLM seam is verified end-to-end.
+
+If `make smoke-e2e` (real) returns `[ OK ] Phase 3 smoke test passed.` and a sensible answer to "What is 2+2?", the entire Phase 3 stack — native llama.cpp + downloaded model + LLMClient + structured error handling — works end-to-end.
 
 ---
 
@@ -289,8 +286,8 @@ This section is the **running log of every step executed**, in execution order. 
 | 3.7 | Download comparison models (TinyLlama, Llama 3.2 3B) | ✅ Done | `ee984c0` (+ 3 fix commits: `098d438`, `412e7f3`, `51e9f6e`) | same as 3.6 (LLMClient commit) | Student action completed: downloaded tinyllama-1.1b (637 MB) and llama-3.2-3b (1.88 GB) via `scripts/download_models.py`. **Mistral 7B fix in `412e7f3`:** original TheBloke repo returned 401; switched to bartowski mirror and re-verified (4.37 GB public mirror, HTTP 200). **Truncation fix in `51e9f6e`:** Llama 3.2 first download silently stopped at 753 MB of the expected 1.88 GB and the manifest recorded a "valid" SHA for the truncated bytes; llama-server later failed with `tensor 'blk.15.ffn_up.weight' data is not within the file bounds`. Fixed in `_fetch` (short-read guard vs Content-Length) and `download` (registry `expected_size_bytes` cross-check, 5% tolerance). 3 new tests in `TestTruncationGuard`. Student re-downloaded Llama 3.2 — 1.88 GB clean. All 4 models (`phi-3-mini`, `tinyllama-1.1b`, `llama-3.2-3b`, `mistral-7b`) verified end-to-end. |
 | 3.7a | LLMClient Protocol + LlamaCppClient + smoke test | ✅ Done | `ee984c0` | `feat(llm): add LLMClient Protocol + LlamaCppClient + smoke test (Step 3.7)` | Added `src/tinyrag/generation/{__init__,llm_client}.py` (~430 lines): `LLMClient` `@runtime_checkable` Protocol, `FakeLLMClient` deterministic stub (for tests / offline dev), `LlamaCppClient` real HTTP/SSE client (talks to llama-server's `/v1/chat/completions` with stream=true, parses Server-Sent Events, extracts `choices[].delta.content`, terminates on `[DONE]`, captures `usage` block, falls back to whitespace-split token estimation when usage is missing). Typed exception hierarchy: `LLMError` → `LLMUnavailableError` (5xx, connection, timeout) / `LLMRefusedError` (4xx). Lazy httpx.Client ownership. Plus `scripts/smoke_test_llm.py` (CLI: `--model`, `--all`, `--base-url`, `--prompt`, `--max-tokens`, `--models-dir`, `--json`) and `tests/test_llm_client.py` — **31 hermetic tests** using `httpx.MockTransport` covering: ChatMessage shape, Protocol duck-typing (no inheritance), FakeLLMClient canned responses + overrides + raise_after_tokens, LlamaCppClient SSE parsing (concatenation, [DONE] termination, malformed lines, role-only chunks), 5xx/4xx/connection error mapping, lazy client ownership, multi-message (system+user) roundtrip. New Makefile targets: `smoke-llm`, `smoke-llm-all`. **This is technically an "extra" step that doesn't appear in the roadmap by name** — the roadmap's Phase 3 only requires the LLM to be downloadable + runnable, but writing the LLMClient Protocol now means Phase 4 (FastAPI) can start straight away. Documented here so future contributors know where the LLM seam lives. |
 | 3.8 | Generate synthetic sensor data | ✅ Done | `b7680d3` | `feat(sensors): add 30-day synthetic sensor generator (Step 3.8)` | Added `scripts/generate_synthetic_sensors.py` (~480 lines): numpy + pandas, SEED=42 reproducibility, 5-min resolution, 6 sensors (living_room_temp, living_room_hum, bedroom_temp, bedroom_hum, kitchen_motion, house_energy), long-format CSV output to `data/sensor_logs/synthetic_30d.csv` (gitignored). Per-sensor physics: temperature = daily sinusoid + per-room offset + Gaussian noise; humidity = weakly anti-correlated with temp, bounded [30, 80]; motion = Bernoulli with hour-of-day + weekday/weekend rates; energy = base draw + morning/evening peaks + weekend multiplier + 5% appliance surges. CLI: `--start`, `--days`, `--interval-min`, `--out`, `--seed`, `--summary`, `--json`. Generated 51,840 rows × 6 sensors (30 days × 288 ticks/day). Plus `tests/test_generate_synthetic_sensors.py` — **34 hermetic tests** covering: schema conformance (§6.1 columns + dtypes + canonical sensors), no NaN, realistic value ranges (temp 15-30, humidity 30-80, motion 0/1, energy ≥ 0), daily patterns (afternoon temp peak, dinner motion peak), SEED=42 reproducibility (same/different seed → same/different output), summary helper, time-grid correctness (5-min spacing, no duplicates per sensor), custom start date. Full suite: **115/115 tests pass** (was 81, added 34). No new runtime deps — `pandas` + `numpy` were already pinned. |
-| 3.9 | Phase 3 checkpoint: end-to-end smoke test | ⏳ Next | — | — | One-script checkpoint that exercises the entire Phase 3 stack end-to-end (config + llama-server + query + response). |
-| 4.1 | Initialize the project skeleton (folders only) | ⬜ Pending | — | — | Per docs/06_roadmap_v2.md Phase 4. |
+| 3.9 | Phase 3 checkpoint: end-to-end smoke test | ✅ Done | `d882691` | `feat(smoke): add Phase 3 end-to-end smoke test (Step 3.9)` | Added `scripts/smoke_test.py` (~370 lines): hard-coded "What is 2+2?" probe sent through `LLMClient` (real llama-server or `FakeLLMClient`), `SmokeResult` dataclass with `to_dict()` for JSON output, `print_human` / `print_json` formatters, CLI with `--client {real,fake}`, `--base-url`, `--model`, `--query`, `--max-tokens`, `--json`, `--quiet`. Exit codes: 0 = success, 1 = empty/error, 2 = argparse. Catches every `LLMError` and converts to a structured failed result (no traceback to stderr). Plus `tests/test_smoke_test.py` — **26 hermetic tests** covering: contract constants (defaults match Makefile), client factories, `run_smoke()` success/empty/whitespace/LLMError paths, `SmokeResult.to_dict()` shape + JSON-safety, full `main()` end-to-end (`--json`/`--quiet`/`--query`/bad-client exit 2/no-server exit 1+structured-error), `print_human`/`print_json` formatting. All hermetic — uses FakeLLMClient or synthetic BrokenClient/SilentClient classes; no network. Plus new `make smoke-e2e` target honoring `E2E_CLIENT=fake` for hermetic CI mode. **Bonus fix in same commit:** Makefile help-regex bug — `[a-zA-Z_-]` didn't match digits, so targets like `smoke-e2e` (digit `2`) were silently dropped from `make help`. Fixed across all 8 `grep -E` occurrences. Verified: `make smoke-e2e E2E_CLIENT=fake` exits 0 with `[ OK ]` banner; `make smoke-e2e` (no llama-server) exits 1 with structured `LLMError: ...Connection refused...` JSON. **Phase 3 is now complete.** Full suite: **141/141 tests pass** (was 115, added 26). Lint clean. |
+| 4.1 | Initialize the project skeleton (folders only) | ⏳ Next | — | — | Per docs/06_roadmap_v2.md Phase 4. |
 | 4.2 | Set up `config.yaml` + `Settings` loader | ⬜ Pending | — | — | Per docs/06_roadmap_v2.md Phase 4. |
 
 ### 11.2 Phase 4 — Build (laptop)
