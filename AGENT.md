@@ -2,12 +2,13 @@
 
 > **Purpose:** This file is the single source of truth for anyone (human or AI) picking up the TinyRAG project. If you are a new agent, **read this first** before doing anything. It tells you what the project is, what decisions have been made, where things live, and what to do next.
 
-**Last updated:** 2026-06-23 (update 9)
-**Project status:** Step 3.1 complete — repo live on GitHub (3 commits on `main`)
-**Next milestone:** Step 3.2 — Python venv + pinned requirements
+**Last updated:** 2026-06-23 (update 10)
+**Project status:** Step 3.2 complete — Python env set up, 32/32 smoke tests passing
+**Next milestone:** Step 3.3 — Install system dependencies for llama.cpp + OpenBLAS
 **Canonical roadmap:** `docs/06_roadmap_v2.md` (the older `v1` and `laptop_v1` are historical only)
 **Remote:** `https://github.com/marajulcsecu/tinyrag`
-**Tip of `main`:** `f78e0a7` (see §11 Build Journal)
+**Tip of `main`:** `1519733` (see §11 Build Journal)
+**Venv location:** `~/venvs/tinyrag` (symlinked as `.venv` in project root — Python's venv refuses colon-containing paths)
 
 ---
 
@@ -258,7 +259,7 @@ This section is the **running log of every step executed**, in execution order. 
 | Step | Description | Status | Commit SHA | Commit message | Notes |
 |------|-------------|--------|------------|----------------|-------|
 | 3.1 | Initialize Git repository | ✅ Done | `f78e0a7` (tip) | `docs(agent): mark Step 3.1 complete and add Build Journal section` | 35+ files pushed to `https://github.com/marajulcsecu/tinyrag`. History is a 3-commit rebase: GitHub's auto-MIT (dca6b0d) → initial repo (e401c6d) → AGENT.md Build Journal (f78e0a7). |
-| 3.2 | Set up Python venv + pinned requirements | ⏳ Next | — | — | Student action: create venv, run `pip install` |
+| 3.2 | Set up Python venv + pinned requirements | ✅ Done | `1519733` | `chore(deps): set up pinned Python environment (Step 3.2)` | Added requirements.txt, requirements-dev.txt, pyproject.toml, Makefile, .env.example, tests/test_smoke.py, src/tinyrag/__init__.py. Venv at `~/venvs/tinyrag` (symlinked as `.venv`) because project path contains colons. 32/32 smoke tests pass. |
 | 3.3 | Install system deps for llama.cpp + OpenBLAS | ⬜ Pending | — | — | Student action: `bash scripts/install_system_deps.sh` |
 | 3.4 | Build llama.cpp from source with OpenBLAS | ⬜ Pending | — | — | Student action: `bash scripts/build_llamacpp.sh` |
 | 3.5 | Download Phi-3 Mini 3.8B GGUF | ⬜ Pending | — | — | Student action: `python scripts/download_models.py --model phi3-mini` |
