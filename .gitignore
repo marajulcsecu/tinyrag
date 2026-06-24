@@ -162,3 +162,11 @@ build/
 !scripts/.gitkeep
 !src/.gitkeep
 !tests/.gitkeep
+
+# Test fixtures (real-world PDFs, etc.) are downloaded on demand via
+# scripts/download_fixtures.py in Step 4.9 — keeps the repo small and
+# avoids license ambiguity for vendor docs (e.g. Nest thermostat PDF).
+# The /* matches every file in the dir; the negation keeps .gitkeep
+# tracked so the empty-dir placeholder survives a fresh clone.
+tests/fixtures/*
+!tests/fixtures/.gitkeep
