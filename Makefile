@@ -293,6 +293,8 @@ run-llm:  ## Start the llama.cpp HTTP server (Phase 3.7+)
 	@echo ">> Starting llama-server on :8080"
 	@if [ ! -x llama.cpp/build/bin/llama-server ]; then \
 		echo "ERROR: llama.cpp not built yet. Run: bash scripts/build_llamacpp.sh"; \
+		echo "       (On this laptop the real binary lives at: $$HOME/.cache/llamacpp-build/build/bin/llama-server)"; \
+		echo "       (Pre-Step 3.4a builds were in /tmp/llamacpp-build — those may have been wiped on reboot.)"; \
 		exit 1; \
 	fi
 	@if [ ! -f $(LLM_GGUF) ]; then \

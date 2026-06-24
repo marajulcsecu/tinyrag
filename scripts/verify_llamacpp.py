@@ -57,26 +57,37 @@ LLAMACPP_BUILD_DIR = LLAMACPP_DIR / "build"
 LLAMACPP_BIN = LLAMACPP_BUILD_DIR / "bin" / "llama-server"
 
 # Colon-in-path workaround: if the project path contains a colon, the real
-# build is in /tmp/llamacpp-build. Try /tmp first when the in-project path
-# is missing AND the project path looks like a colon-path. Otherwise default
+# build is in $HOME/.cache/llamacpp-build (persistent; used to be
+# /tmp/llamacpp-build pre-Step 3.4a). We check the persistent location
+# first when the project path has a colon, then fall back to /tmp for
+# users with old builds (the migration is idempotent — see
+# docs/BUILDS.md §2.2.1 and AGENT.md "Step 3.4a"). Otherwise default
 # to the in-project path.
 def _resolve_actual_paths() -> tuple[Path, Path, Path]:
     """Return (src_dir, build_dir, bin) — handling the colon-path case.
 
     When the project lives at e.g. "TinyRAG: .../foo", GNU Make can't
     parse the auto-generated Makefiles, so the build is diverted to
-    /tmp/llamacpp-build/. The source tree is also cloned there
-    (under /tmp/llamacpp-build/ itself, not /tmp/llamacpp-build/llama.cpp).
-    We check that location first if the project path has a colon, then
-    fall back to the in-project path.
+    ``$HOME/.cache/llamacpp-build/`` (the XDG cache home; persistent
+    across reboots). The source tree is also cloned there
+    (under ``$HOME/.cache/llamacpp-build/`` itself, not
+    ``$HOME/.cache/llamacpp-build/llama.cpp``). We check that
+    location first if the project path has a colon; if not present
+    we fall back to ``/tmp/llamacpp-build`` for users who haven't
+    migrated yet; otherwise default to the in-project path.
     """
     if ":" in str(PROJECT_ROOT):
-        # /tmp/llamacpp-build/ IS the source tree (cloned at /tmp/llamacpp-build)
-        # with build/ as a subdirectory. The project's llama.cpp/ has build/
-        # and bin/ symlinked into it.
-        if (Path("/tmp/llamacpp-build") / ".git").exists():
-            src = Path("/tmp/llamacpp-build")
-            build = Path("/tmp/llamacpp-build/build")
+        persistent_parent = Path.home() / ".cache" / "llamacpp-build"
+        if (persistent_parent / ".git").exists():
+            src = persistent_parent
+            build = persistent_parent / "build"
+            bin_ = build / "bin" / "llama-server"
+            return src, build, bin_
+        # Fall back to /tmp for pre-Step 3.4a builds (legacy).
+        legacy_parent = Path("/tmp/llamacpp-build")
+        if (legacy_parent / ".git").exists():
+            src = legacy_parent
+            build = legacy_parent / "build"
             bin_ = build / "bin" / "llama-server"
             return src, build, bin_
     return LLAMACPP_DIR, LLAMACPP_BUILD_DIR, LLAMACPP_BIN

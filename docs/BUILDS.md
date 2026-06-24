@@ -77,7 +77,9 @@ These are installed by `scripts/install_system_deps.sh`. Full per-package ration
 
 **Default:** source and build live in `${PROJECT_ROOT}/llama.cpp/` and `${PROJECT_ROOT}/llama.cpp/build/`.
 
-**Workaround (current laptop):** the project path `~/Desktop/Capstone Project/TinyRAG: Retrieval-Augmented Generation forEdge IoT./` contains colons, which GNU Make cannot parse inside auto-generated Makefile target names. To work around this, the build script `scripts/build_llamacpp.sh` auto-detects a colon in `PROJECT_ROOT` and diverts the source tree to `/tmp/llamacpp-build/` and the build directory to `/tmp/llamacpp-build/build/`. After building, the script symlinks `${PROJECT_ROOT}/llama.cpp/build` → `/tmp/llamacpp-build/build` so the rest of the toolchain (Makefile, scripts, run.sh) finds the binary at the expected path.
+**Workaround (current laptop):** the project path `~/Desktop/Capstone Project/TinyRAG: Retrieval-Augmented Generation forEdge IoT./` contains colons, which GNU Make cannot parse inside auto-generated Makefile target names. To work around this, the build script `scripts/build_llamacpp.sh` auto-detects a colon in `PROJECT_ROOT` and diverts the source tree to `${HOME}/.cache/llamacpp-build/` (XDG cache home — **persistent across reboots**) and the build directory to `${HOME}/.cache/llamacpp-build/build/`. After building, the script symlinks `${PROJECT_ROOT}/llama.cpp/build` → `${HOME}/.cache/llamacpp-build/build` and `${PROJECT_ROOT}/llama.cpp/bin` → `${HOME}/.cache/llamacpp-build/build/bin` so the rest of the toolchain (Makefile, scripts, run.sh) finds the binary at the expected path.
+
+**History note (Step 3.4a):** prior to the Step 3.4a housekeeping pass (2026-06-24), the build directory lived at `/tmp/llamacpp-build/`. `/tmp` is volatile on most systems (wiped on reboot, by `tmpreaper`, and on some distros by routine maintenance). Moving to `${HOME}/.cache/` makes the build survive a reboot so a 7-minute compile doesn't have to be redone. `scripts/verify_llamacpp.py` checks `${HOME}/.cache/llamacpp-build/` first and falls back to `/tmp/llamacpp-build/` for legacy builds (so a fresh `git pull` from a user with an old build still works).
 
 **Long-term fix:** rename the project directory to remove the colon (e.g. `TinyRAG-EdgeIoT/`). This is tracked as a P1 cleanup task.
 
@@ -129,8 +131,8 @@ The Step 3.4 build was completed and verified on 2026-06-23. Recorded here so fu
 | **OpenMPI / BLAS deps** | `liblapack-dev` 3.11.0 |
 | **llama.cpp tag** | `gguf-v0.19.0` |
 | **llama.cpp commit** | `a290ce626663dae1d54f70bce3ca6d8f67aab62f` |
-| **Build dir** | `/tmp/llamacpp-build/build` (colon-in-path workaround) |
-| **Project symlink** | `llama.cpp/build -> /tmp/llamacpp-build/build` |
+| **Build dir** | `${HOME}/.cache/llamacpp-build/build` (colon-in-path workaround; was `/tmp/llamacpp-build/build` pre-Step 3.4a) |
+| **Project symlink** | `llama.cpp/build -> ${HOME}/.cache/llamacpp-build/build` |
 | **Binary size** | 9,436,656 bytes (~9.4 MB) |
 | **Binary version** | `version: 9046 (a290ce626)` |
 | **OpenBLAS linked?** | YES — `libopenblas.so.0 => /lib/x86_64-linux-gnu/libopenblas.so.0` |
@@ -138,7 +140,8 @@ The Step 3.4 build was completed and verified on 2026-06-23. Recorded here so fu
 | **Build wall time** | ~7 min (first time) — incremental rebuilds <30 s |
 
 **Known caveats:**
-- The build directory is in `/tmp` (not in the project) due to the colon-in-path workaround (§2.2.1). It will be wiped on reboot. Re-run `bash scripts/build_llamacpp.sh` after a reboot to restore.
+- The build directory is in `${HOME}/.cache/llamacpp-build/` (not in the project) due to the colon-in-path workaround (§2.2.1). This is **persistent across reboots** (XDG cache home) so you should not need to re-run `bash scripts/build_llamacpp.sh` after a reboot. If you do (e.g. `ldd` shows the binary is missing), re-run the build script — it will resume from the existing source clone.
+- Pre-Step 3.4a builds lived in `/tmp/llamacpp-build/`; if you have such a build and `/tmp` got wiped, just re-run `bash scripts/build_llamacpp.sh` and the new location will be used automatically.
 - After renaming the project directory to remove the colon, the build will land in `${PROJECT_ROOT}/llama.cpp/build/` as originally designed.
 
 ---
@@ -209,7 +212,7 @@ Never bump a native version in a hurry — these are the load-bearing pieces of 
 | 2 | The CUDA build of `torch` was installed (Step 3.2). Harmless but ~2 GB wasted. | Install via `--index-url https://download.pytorch.org/whl/cpu` on next clean install. | Step 3.2 hardening |
 | 3 | OpenBLAS thread auto-detection sometimes over-subscribes on hyperthreaded CPUs. | Pass `OPENBLAS_NUM_THREADS=8` (or actual core count) when starting llama-server. | Step 3.7 |
 | 4 | Pi 5 build flags are placeholders only. | Real Pi build script will be created in Step 6.4. | Phase 6 |
-| 5 | **Project path contains `:` — GNU Make cannot parse the auto-generated Makefiles.** | Build is diverted to `/tmp/llamacpp-build/` and symlinked into the project. See §2.2.1. | P1 — rename the project directory to drop the colon. |
+| 5 | **Project path contains `:` — GNU Make cannot parse the auto-generated Makefiles.** | Build is diverted to `${HOME}/.cache/llamacpp-build/` (was `/tmp/llamacpp-build/` pre-Step 3.4a) and symlinked into the project. See §2.2.1. | P1 — rename the project directory to drop the colon. |
 | 6 | The legacy `GGML_OPENBLAS=ON` cmake flag is silently ignored in `gguf-v0.19.0`+. Builds with this flag appear to succeed but don't actually link OpenBLAS. | Use `GGML_BLAS=ON` + `GGML_BLAS_VENDOR=OpenBLAS` (see §2.2). The build script handles this correctly. | Resolved in Step 3.4. |
 
 ---

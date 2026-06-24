@@ -111,24 +111,39 @@ log_info "Pinned tag: ${LLAMACPP_PINNED_TAG}"
 # GNU Make pattern rules cannot contain ':' in target names. If the project
 # lives at a path with a colon (e.g. "TinyRAG: Retrieval-Augmented .../"),
 # the auto-generated CMake Makefiles produced inside the build dir will fail
-# to parse. We detect this and divert the build to /tmp, then symlink the
-# binary back into the project. The source tree stays in the project (it's
-# not a Make target — only the build/ output is).
+# to parse. We detect this and divert the build OUT of the project tree
+# (where Make would choke on the colon), then symlink the binary back into
+# the project so the rest of the toolchain finds it at the expected path.
+#
+# **Why ${HOME}/.cache/llamacpp-build and not /tmp?**
+# ``/tmp`` is volatile — it's wiped on reboot, by ``tmpreaper``, and
+# on many systems by routine maintenance. Putting the build in the
+# user's ``XDG cache dir`` (``$HOME/.cache``) makes it survive
+# reboots, so the user doesn't have to re-run a 7-minute compile
+# after a power cycle. The first migration from ``/tmp`` to
+# ``$HOME/.cache`` is recorded in the build journal as "Step 3.4a"
+# (see AGENT.md §11.1).
 EXTERNAL_BUILD_DIR=""
 EXTERNAL_SRC_DIR=""
 if [[ "$PROJECT_ROOT" == *:* ]]; then
-    log_warn "Project path contains ':' — diverting build to /tmp/llamacpp-build"
+    log_warn "Project path contains ':' — diverting build out of project tree"
     log_warn "(GNU Make cannot parse Makefiles with colons in target names)"
-    EXTERNAL_BUILD_DIR="/tmp/llamacpp-build/build"
-    EXTERNAL_SRC_DIR="/tmp/llamacpp-build"
+    # ``${HOME}/.cache`` is the XDG cache home on Linux. We don't use
+    # ``XDG_CACHE_HOME`` because the script is sometimes sourced
+    # from non-login shells where the env var may be unset; falling
+    # back to ``$HOME/.cache`` is the standard default.
+    EXTERNAL_BUILD_PARENT="${HOME}/.cache/llamacpp-build"
+    EXTERNAL_BUILD_DIR="${EXTERNAL_BUILD_PARENT}/build"
+    EXTERNAL_SRC_DIR="${EXTERNAL_BUILD_PARENT}"
 fi
 
 
 # ---- Resolve source and build directories --------------------------------
 # When the project path contains a colon (GNU Make limitation), the source
-# tree AND build dir live in /tmp. The /tmp dir is structured as:
-#   /tmp/llamacpp-build/            <- llama.cpp source (cloned here)
-#   /tmp/llamacpp-build/build/       <- cmake build dir
+# tree AND build dir live under ``$HOME/.cache/llamacpp-build/``, which
+# is structured as:
+#   ${HOME}/.cache/llamacpp-build/         <- llama.cpp source (cloned here)
+#   ${HOME}/.cache/llamacpp-build/build/    <- cmake build dir
 # Otherwise both live in the project at llama.cpp/ and llama.cpp/build/.
 if [[ -n "$EXTERNAL_SRC_DIR" ]]; then
     SRC_DIR="$EXTERNAL_SRC_DIR"
