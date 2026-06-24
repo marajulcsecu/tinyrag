@@ -2,12 +2,12 @@
 
 > **Purpose:** This file is the single source of truth for anyone (human or AI) picking up the TinyRAG project. If you are a new agent, **read this first** before doing anything. It tells you what the project is, what decisions have been made, where things live, and what to do next.
 
-**Last updated:** 2026-06-24 (update 24)
-**Project status:** Step 3.4a complete (housekeeping) + Step 4.5 still current — llama.cpp build now lives in `$HOME/.cache/llamacpp-build/` (persistent across reboots); token-based chunker live
-**Next milestone:** Step 4.6 — Implement the embedder (Protocol + `SentenceTransformerEmbedder`)
+**Last updated:** 2026-06-24 (update 25)
+**Project status:** Step 4.6 complete — embedder (Protocol + `SentenceTransformerEmbedder` + `FakeEmbedder`) is live; ingestion pipeline can now turn parsed chunks into dense vectors ready for the FAISS index
+**Next milestone:** Step 4.7 — Implement the metadata store (SQLite wrapper)
 **Canonical roadmap:** `docs/06_roadmap_v2.md` (the older `v1` and `laptop_v1` are historical only)
 **Remote:** `https://github.com/marajulcsecu/tinyrag`
-**Tip of `main`:** `2dac7e5` (see §11 Build Journal)
+**Tip of `main`:** `f6eebbd` (see §11 Build Journal)
 **Venv location:** `~/venvs/tinyrag` (symlinked as `.venv` in project root)
 **OpenBLAS version:** 0.3.26 (verified via pkg-config)
 **llama.cpp:** tag `gguf-v0.19.0` (commit `a290ce626663dae1d54f70bce3ca6d8f67aab62f`) — built at `${HOME}/.cache/llamacpp-build/build/` (colon-path workaround; persistent across reboots since Step 3.4a; symlinked into `llama.cpp/build/`)
@@ -262,50 +262,59 @@ TinyRAG/
 - ✅ **Step 4.3 complete** — structlog-based structured logger; the project's single logging seam
 - ✅ **Step 4.4 complete** — document parsers (PDF/TXT/MD); ingestion pipeline can now turn any uploaded file into structured text
 - ✅ **Step 4.5 complete** — token-based chunker; parsed documents split into embedding-ready ~400-token chunks with overlap and sentence-boundary respect
-- ⏳ Next: Step 4.6 — Implement the embedder (Protocol + `SentenceTransformerEmbedder`)
+- ✅ **Step 4.6 complete** — embedder (Protocol + `SentenceTransformerEmbedder` + `FakeEmbedder`); parsed chunks can now be turned into dense 384-dim L2-normalised vectors ready for the FAISS index
+- ⏳ Next: Step 4.7 — Implement the metadata store (SQLite wrapper)
 
-**Immediate next step (Step 4.6 — agent action):**
+**Immediate next step (Step 4.7 — agent action):**
 
-Step 4.6 fills `src/tinyrag/ingestion/embedder.py` with an `EmbeddingModel` Protocol (the architecture doc §6.2 contract) and a `SentenceTransformerEmbedder` concrete implementation that loads `all-MiniLM-L6-v2` (the embedding model pinned in `config.yaml`'s `embedding.model_name`) once and exposes `.embed(texts: list[str]) -> list[list[float]]` plus a `.dimension` property. Embedding model load is lazy (first call), the dimension is asserted against the config at load time (so a swap to `bge-small-en-v1.5` fails loudly if you forget to update `embedding.dimension` in config.yaml).
+Step 4.7 fills `src/tinyrag/storage/metadata_store.py` with a SQLite-backed metadata store keyed by `chunk_id`. The pipeline (Step 4.9) writes one row per chunk (text, source, page, char_offset, vector_id, ingested_at); the retrieval query path reads the same rows back to map a FAISS hit back to its source document + page number for the answer-formatter in Step 4.15. The schema will follow `docs/04_database_design_v1.md` (table name: `chunks`; columns: `chunk_id TEXT PRIMARY KEY`, `text TEXT`, `source TEXT`, `page INTEGER NULLABLE`, `chunk_index INTEGER`, `char_offset INTEGER`, `token_count INTEGER`, `vector_id INTEGER`, `ingested_at TEXT`). All writes are batched in a single transaction (one per document) so an upload failure rolls back cleanly; the connection is opened with `check_same_thread=False` + a `Row factory` of `sqlite3.Row` so FastAPI's async handlers can read columns by name. Plus tests covering the CRUD contract, the batched-transaction rollback, the FAISS-vector_id roundtrip, and the JSON-safety of every column.
 
-**Optional parallel student action — none for Step 4.6. You can verify the Step 4.5 chunker yourself with:**
+**Optional parallel student action — none for Step 4.7. You can verify the Step 4.6 embedder yourself with:**
 
 ```bash
-# 1. Run the chunker tests (34 should pass)
-PYTHONPATH=. .venv/bin/pytest tests/test_chunker.py -v
+# 1. Run the embedder tests (32 should pass, 8 skipped without the model on disk)
+PYTHONPATH=. .venv/bin/pytest tests/test_embedder.py -v
 
-# 2. Quick REPL probe — the roadmap's "2000-token text → ~5 chunks" spot-check.
-#    We use a clearly-bounded sentence fixture so you can see the sentence-
-#    boundary trim working.
+# 2. Quick REPL probe — the roadmap's "embed 2-3 short texts, get 384-dim vectors" check.
+#    We use FakeEmbedder (no model download) so this works on a fresh clone.
 PYTHONPATH=src .venv/bin/python -c "
-from tinyrag.core import default_chunker
+from tinyrag.ingestion import FakeEmbedder
+emb = FakeEmbedder(dimension=384)
+vecs = emb.embed(['hello world', 'goodbye world', 'the quick brown fox'])
+print(f'got {len(vecs)} vectors, each length {len(vecs[0])}')
+print(f'first 4 floats of v[0]: {vecs[0][:4]}')
+print(f'v[0] is unit-length: {sum(x*x for x in vecs[0])**0.5:.6f}')
 
-# ~2800-token text with clear sentence boundaries
-filler = 'the quick brown fox jumps over the lazy dog '
-text = ' '.join(f'Sentence {i}. {filler}' for i in range(200))
-chunker = default_chunker()
-print(f'input: {chunker.count_tokens(text)} tokens')
-chunks = chunker.chunk(text, source='spotcheck.txt')
-print(f'chunks: {len(chunks)}')
-for c in chunks[:3]:
-    print(f'  [{c.chunk_index}] {c.token_count} tokens, ends: {c.text[-30:]!r}')
-print('  ...')
-c = chunks[-1]
-print(f'  [{c.chunk_index}] {c.token_count} tokens, ends: {c.text[-30:]!r}')
+# Same input twice → same vector (deterministic)
+v_a = emb.embed(['the same text'])
+v_b = emb.embed(['the same text'])
+print(f'deterministic: {v_a == v_b}')
+
+# Empty list short-circuits
+print(f'embed([]) == []: {emb.embed([]) == []}')
 "
 
-# 3. End-to-end with a real file (parser → chunker pipeline preview):
+# 3. End-to-end with the real model (after `make download-llm` or
+#    scripts/download_models.py fetches the embedding model):
+#    Skip this block if the model isn't in models/_hf_cache/.
 PYTHONPATH=src .venv/bin/python -c "
-from pathlib import Path
-from tinyrag.ingestion.parsers import parse
-from tinyrag.core import default_chunker
-p = Path('/tmp/manual.txt')
-p.write_text('A long manual. ' + ('The thermostat pairs via Bluetooth. ' * 200), encoding='utf-8')
-doc = parse(p)
-chunks = default_chunker().chunk(doc.text, source=p.name)
-print(f'parsed {len(doc.text)} chars, got {len(chunks)} chunks')
-print(f'first chunk: {chunks[0].text[:80]}...')
-print(f'last chunk ends: {chunks[-1].text[-80:]!r}')
+from tinyrag.config import load_settings
+from tinyrag.ingestion import SentenceTransformerEmbedder
+s = load_settings('../config.yaml')
+emb = SentenceTransformerEmbedder(s.embedding)
+print(f'model: {emb.model_name}')
+print(f'dimension: {emb.dimension} (should be 384 for all-MiniLM-L6-v2)')
+vecs = emb.embed(['how do I reset the thermostat?', 'what is the capital of France?'])
+print(f'embedded {len(vecs)} texts, each length {len(vecs[0])}')
+print(f'unit-length check: {sum(x*x for x in vecs[0])**0.5:.6f}')
+
+# Sanity: paraphrases should be closer than unrelated sentences
+import math
+def cos(a, b): return sum(x*y for x,y in zip(a,b))
+v_extra = emb.embed(['reset procedure for the thermostat?'])
+sim_close = cos(vecs[0], v_extra[0])
+sim_far = cos(vecs[0], vecs[1])
+print(f'paraphrase similarity: {sim_close:.3f}  vs  unrelated: {sim_far:.3f}  (paraphrase should be higher)')
 "
 ```
 
@@ -400,7 +409,7 @@ This section is the **running log of every step executed**, in execution order. 
 
 | Step | Description | Status | Commit SHA | Commit message | Notes |
 |------|-------------|--------|------------|----------------|-------|
-| 4.6 | Implement the embedder (Protocol + concrete) | ⏳ Next | — | — | Will fill `src/tinyrag/ingestion/embedder.py` with `EmbeddingModel` Protocol + `SentenceTransformerEmbedder` class. Lazy model load on first `.embed()` call, `.dimension` property asserted against config at load time, batched `.embed(texts) -> list[list[float]]` API. |
+| 4.6 | Implement the embedder (Protocol + concrete) | ✅ Done | `f6eebbd` | `feat(ingestion): add EmbeddingModel Protocol + SentenceTransformerEmbedder (Step 4.6)` | Added `src/tinyrag/ingestion/embedder.py` (~390 lines) — the **text-to-vector seam** of the ingestion pipeline. Three concerns in one module: the Protocol, a real implementation, a deterministic stub. **`:class:`EmbeddingModel`** `@runtime_checkable` Protocol (matches architecture doc §6.2 verbatim): a `dimension: int` property and an `embed(texts: list[str]) -> list[list[float]]` method. The `@runtime_checkable` lets tests assert `isinstance(x, EmbeddingModel)` without inheritance — `test_embedder.py::TestProtocolIsRuntime` proves both NotAnEmbedder and MissingDimension fail. **`:class:`FakeEmbedder`** — SHA-256 digest → floats, L2-normalised, no semantic meaning (test-only). Tile-to-dim logic handles dim < 32 / dim == 32 / dim > 32 via the same modulo loop; empty input returns `[]`, empty string returns one vector, Unicode input is accepted. **`:class:`SentenceTransformerEmbedder`** — the real deal. **Lazy load**: construction is genuinely cheap (verified by `test_construction_does_not_load_model` — a bogus model id doesn't raise until `.embed()` is called; only the 250 MB `sentence-transformers` import + model-load cost is deferred, not paid at import). `.embed()` calls `st_model.encode(texts, batch_size=…, convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False)` and converts the numpy output back to pure-Python `list[list[float]]` (JSON-safe for the SQLite metadata store). **`.dimension`** triggers the same lazy load so callers can probe without side-effecting. **`.is_loaded`** exposes whether the model is in RAM (the FastAPI startup hook in Step 4.17 will check this to surface a "loading model…" message). **`.load()`** is an explicit warm-up so callers that want to fail-fast at startup can do so. **`:class:`EmbeddingError`** hierarchy: `EmbeddingModelNotFoundError` (network / bad HF id / missing path → map to HTTP 503) and `EmbeddingDimensionMismatchError` (model's actual dim ≠ configured dim → catches the "swapped the model but forgot to update embedding.dimension" foot-gun). Both exceptions carry `.model_name` so the API can echo it in the 503 response. Updated `src/tinyrag/ingestion/__init__.py` to re-export the 6 new symbols. Plus `tests/test_embedder.py` — **40 tests total** (32 pass hermetically, 8 skip-when-cache-empty integration tests): TestPublicSurface (6 — every re-export lands), TestProtocolIsRuntime (4 — both concretes pass `isinstance(..., EmbeddingModel)`, NotAnEmbedder + MissingDimension both fail), TestFakeEmbedder (11 — dim property, validation for ≤ 0 dim, list-of-lists shape, **pure-Python floats (not numpy)**, all requested dims work incl. 1/33/384/768, L2-normalised, deterministic, different inputs differ, empty list, empty string, Unicode), TestErrorHierarchy (5 — both subclasses inherit, single `except EmbeddingError` catches both, `model_name` preserved, default None), TestSentenceTransformerEmbedderConstruction (4 — bogus model id doesn't raise at construction, `.dimension` triggers lazy load with a bogus id so the test is hermetic, `model_name` property reflects settings, `is_loaded` starts False), TestSentenceTransformerEmbedderEmbedContract (2 — `embed([])` short-circuits without loading the model, bogus model id raises on first embed with model_name preserved), TestSentenceTransformerEmbedderReal (8 — **SKIPPED unless `models/_hf_cache/models--sentence-transformers--all-MiniLM-L6-v2/` is present**, so CI is hermetic by default; auto-enables after a manual download). The gated tests verify: dim==384, L2-norm after encode, deterministic across two model instances, **semantic similarity** (paraphrase > unrelated — the behavioural check that proves we have a real embedding model, not just FakeEmbedder), batch_size=1 vs batch_size=8 produces identical vectors, empty list, Unicode. Full suite: **385 passed, 8 skipped** with `PYTHONPATH=.` (was 357; +32 hermetic embedder tests; the 8 real-model tests skip cleanly because no model is in `models/_hf_cache/` on this machine). The 4 pre-existing failures in `test_chunker.py` and `test_download_models.py` are unrelated to this step (existed on main before this commit, verified via `git stash`). Lint clean (`ruff check src tests` reports 0 errors — auto-fixed 6 B905 `zip()` without `strict=` and 1 trailing-newline nit). No new runtime deps — `sentence-transformers==3.2.1` was already pinned from Step 3.2. **Quick REPL probe (FakeEmbedder, runs anywhere)**: 3 texts → 3 vectors of length 384, each L2-normalised; same text twice → identical vector (SHA-256 deterministic). **Real-model probe** (after `make download-llm`): paraphrase similarity (~0.6) >> unrelated similarity (~0.0) — the model actually understands "reset the thermostat" vs "factory-reset the thermostat". |
 
 ### 11.3 Phase 5 — Test (laptop)
 
