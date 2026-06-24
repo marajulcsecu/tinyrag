@@ -1,0 +1,197 @@
+# TinyRAG — runtime configuration (single source of truth)
+#
+# This file is the ONLY place that controls runtime behaviour. Every
+# other module reads from the typed Settings object produced by
+# `src/tinyrag/config.py::load_settings()` — nothing is hard-coded.
+#
+# How to edit this file
+# ---------------------
+# 1. Pick the deployment target (`deployment.target` below). The two
+#    supported values are `laptop` (Dell Inspiron 15 3520, Ubuntu
+#    24.04) and `raspberry_pi` (Raspberry Pi 5 / 8 GB). This choice
+#    affects the default sensor source, GPU layers, and embedding
+#    batch size — see `src/tinyrag/config.py` for the exact rules.
+# 2. Pick the active LLM (`llm.model_path`). The on-disk filename
+#    convention is `<id>.gguf` where `id` is the model id from
+#    `src/tinyrag/models/registry.py` (phi-3-mini, tinyllama-1.1b,
+#    llama-3.2-3b, mistral-7b). The registry maps id → upstream HF
+#    repo + expected SHA-256.
+# 3. Pick the sensor source (`sensors.source`). On the laptop path
+#    the only allowed values are `simulated` and `mqtt`; on the Pi
+#    you can also use `real_serial` (DHT22 + PIR over GPIO).
+# 4. Run `pytest tests/test_config.py -v` to confirm the config
+#    validates against the Pydantic schema.
+#
+# Validation
+# ----------
+# If any required key is missing or has the wrong type, the system
+# exits at startup with a clear error message identifying the field.
+# See `src/tinyrag/config.py::load_settings()` and the
+# `ConfigValidationError` class.
+#
+# This file is the v1 schema. Schema changes must update BOTH this
+# file AND `src/tinyrag/config.py` (the typed model) AND
+# `docs/02_srs_v1.md` Appendix B (the canonical defaults) AND
+# `docs/04_database_design_v1.md` §config (the data-layer view) in
+# the same commit.
+
+deployment:
+  # Which hardware profile is this config tuned for?
+  # Allowed: "laptop" | "raspberry_pi"
+  # - laptop: CPU-only LLM, simulated sensors default, no GPIO.
+  # - raspberry_pi: same defaults but `sensors.source: real_serial`
+  #   is permitted (DHT22 + PIR over GPIO).
+  # This key controls llama.cpp build flags at *build time*
+  # (`scripts/build_llamacpp.sh`) and the *runtime* defaults that
+  # `load_settings()` applies when fields are missing.
+  target: laptop
+
+server:
+  # FastAPI HTTP server bind address.
+  # Use 0.0.0.0 to accept connections from outside localhost (Pi demo).
+  host: 127.0.0.1
+  # Port for the FastAPI web UI + JSON API.
+  port: 8000
+
+llm:
+  # The on-disk GGUF model that llama-server will load. The default
+  # is phi-3-mini (the primary model). To swap, just change this key
+  # — no code change needed (FR-33). Available ids (see
+  # src/tinyrag/models/registry.py): phi-3-mini, tinyllama-1.1b,
+  # llama-3.2-3b, mistral-7b.
+  model_path: models/phi-3-mini.gguf
+
+  # llama-server OpenAI-compatible endpoint.
+  # The Phase 3 smoke test (`make smoke-e2e`) hits this URL.
+  server_url: http://127.0.0.1:8080
+
+  # Context window passed to llama-server's `--ctx-size`. 4096 is
+  # the sweet spot for Phi-3 Mini; raise to 8192 if you see
+  # "context overflow" warnings (rare).
+  context_size: 4096
+
+  # Sampling temperature. 0.0 = greedy/deterministic (recommended for
+  # RAG where you want the same answer every time). 0.7 is the
+  # "creative" default for chat.
+  temperature: 0.0
+
+  # Hard cap on generated tokens per response. 512 is plenty for a
+  # chat answer + a few sentences of explanation.
+  max_tokens: 512
+
+  # Number of model layers to offload to GPU. 0 = CPU only. The
+  # laptop and Pi both have no usable GPU for LLMs (Pi has none;
+  # laptop's Intel iGPU isn't supported by llama.cpp's Vulkan
+  # backend in our build), so 0 is correct for both targets.
+  gpu_layers: 0
+
+embedding:
+  # sentence-transformers model id. all-MiniLM-L6-v2 is 80 MB,
+  # 384-dim, English-only, fast on CPU. Swap to bge-small-en-v1.5
+  # (better quality, similar size) by changing this key.
+  model_name: sentence-transformers/all-MiniLM-L6-v2
+
+  # "cpu" | "cuda" | "mps". TinyRAG is CPU-only by design — both
+  # the laptop and Pi lack a usable GPU for embeddings.
+  device: cpu
+
+  # Batch size when embedding multiple chunks at once. 32 is a
+  # safe default; lower if you see RAM pressure (the Pi has 8 GB
+  # total, of which ~3 GB goes to the OS + llama-server).
+  batch_size: 32
+
+  # Where sentence-transformers caches its downloaded model files.
+  # Keep on the same volume as `models/` so a `make setup-laptop`
+  # install keeps everything together.
+  cache_dir: models/_hf_cache
+
+chunking:
+  # Target tokens per chunk. 400 fits ~1-2 paragraphs of English
+  # prose — small enough to fit several chunks in the LLM context
+  # window, large enough to keep semantic coherence.
+  chunk_size: 400
+
+  # Overlap between consecutive chunks (tokens). 50 (~12%) prevents
+  # sentences from being split across chunk boundaries.
+  chunk_overlap: 50
+
+  # tiktoken encoding used to count tokens. cl100k_base matches
+  # GPT-4 / text-embedding-ada-002; it's the standard choice for
+  # MiniLM-class models.
+  encoding: cl100k_base
+
+retrieval:
+  # Where the document-chunk FAISS index is persisted.
+  # Created by `scripts/ingest.py` on first document upload.
+  doc_index_path: data/vector_store/doc.faiss
+
+  # Where the sensor-summary FAISS index is persisted.
+  # Created by `scripts/summarize_sensors.py` on first run.
+  sensor_index_path: data/vector_store/sensor.faiss
+
+  # How many document chunks to retrieve for a query.
+  doc_top_k: 3
+
+  # How many sensor-summary chunks to retrieve for a query.
+  # Sensor data is summarised into ~24h windows, so 2 windows
+  # covers ~2 days of context.
+  sensor_top_k: 2
+
+  # Minimum cosine similarity for a chunk to be considered
+  # relevant. Below this threshold, the retriever returns nothing
+  # and the prompt builder emits "no relevant context found".
+  similarity_threshold: 0.3
+
+  # Vector index backend. Only "faiss" is supported in v1.
+  index_type: faiss
+
+sensors:
+  # Active sensor source. Allowed values:
+  # - "simulated" — reads the synthetic CSV (Step 3.8). Always works.
+  # - "real_serial" — DHT22 + PIR over GPIO. Pi-only.
+  # - "mqtt" — subscribes to an MQTT broker.
+  # On the laptop path, "real_serial" is rejected at startup
+  # (FR-18 [L] — no GPIO on the laptop).
+  source: simulated
+
+  # Path to the synthetic sensor CSV (only used when source=simulated).
+  csv_path: data/sensor_logs/synthetic_30d.csv
+
+  # Pin numbers for the real_serial source (only used when source=real_serial).
+  # These match the wiring convention in docs/laptop_fallback/README.md
+  # and Step 6.6 of the roadmap.
+  dht_pin: 4
+  pir_pin: 17
+
+  # MQTT broker connection (only used when source=mqtt).
+  mqtt_broker: localhost
+  mqtt_port: 1883
+  mqtt_topic_prefix: tinyrag/sensors/
+
+logging:
+  # Log level: DEBUG | INFO | WARNING | ERROR.
+  level: INFO
+
+  # If true, logs are emitted as one JSON object per line (parseable
+  # by log aggregators). If false, logs are pretty-printed (human-
+  # readable, colorised). Use JSON in production; use pretty when
+  # developing.
+  json_format: true
+
+  # Where logs are written. The directory is auto-created at
+  # startup. Pass `null` to disable file logging entirely.
+  path: logs/tinyrag.log
+
+paths:
+  # Where uploaded documents live (PDF, TXT, MD).
+  documents_dir: data/documents/
+
+  # Where the SQLite metadata DB is stored.
+  metadata_db: data/metadata.db
+
+  # Where the sensor CSVs live (the simulator writes here too).
+  sensor_logs_dir: data/sensor_logs/
+
+  # Where the rotating log file lives (kept separate from logging.path
+  # for symmetry with the documents/ + sensor_logs/ split).
+  logs_dir: logs/
