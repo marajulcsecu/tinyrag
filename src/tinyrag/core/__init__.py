@@ -41,10 +41,28 @@ Location: ``src/tinyrag/core/``
 from __future__ import annotations
 
 from tinyrag.core.chunker import Chunk, Chunker, ChunkingError, default_chunker
+from tinyrag.core.prompt_builder import (
+    DEFAULT_MAX_PROMPT_TOKENS,
+    DEFAULT_RESERVED_FOR_ANSWER_TOKENS,
+    DEFAULT_SYSTEM_PROMPT,
+    USER_MESSAGE_TEMPLATE,
+    Prompt,
+    PromptBuilder,
+    PromptBuilderError,
+    default_prompt_builder,
+)
 
 __all__ = [
     "Chunk",
     "Chunker",
     "ChunkingError",
+    "DEFAULT_MAX_PROMPT_TOKENS",
+    "DEFAULT_RESERVED_FOR_ANSWER_TOKENS",
+    "DEFAULT_SYSTEM_PROMPT",
+    "Prompt",
+    "PromptBuilder",
+    "PromptBuilderError",
+    "USER_MESSAGE_TEMPLATE",
     "default_chunker",
+    "default_prompt_builder",
 ]
