@@ -19,6 +19,10 @@ Modules
   :class:`~tinyrag.storage.metadata.QueryLogRecord`,
   and the ``MetadataError`` exception hierarchy.
 - :mod:`tinyrag.storage.vector_store` — FAISS wrapper (Step 4.8).
+  Provides :class:`~tinyrag.storage.vector_store.VectorStore` (the
+  Protocol), :class:`~tinyrag.storage.vector_store.FAISSStore` (the
+  default implementation), the ``VectorStoreError`` exception
+  hierarchy, and :class:`~tinyrag.storage.vector_store.IndexMeta`.
 
 Why a subpackage and not a single file?
 ---------------------------------------
@@ -49,8 +53,22 @@ from tinyrag.storage.metadata import (
     MetadataStore,
     QueryLogRecord,
 )
+from tinyrag.storage.vector_store import (
+    DEFAULT_EMBEDDING_DIMENSION,
+    DEFAULT_EMBEDDING_MODEL,
+    INDEX_TYPE,
+    META_VERSION,
+    FAISSStore,
+    IndexMeta,
+    VectorStore,
+    VectorStoreCorruptError,
+    VectorStoreDimensionMismatchError,
+    VectorStoreError,
+    VectorStoreSearchError,
+)
 
 __all__ = [
+    # metadata
     "ChunkRecord",
     "DocumentRecord",
     "MetadataError",
@@ -61,4 +79,16 @@ __all__ = [
     "QueryLogRecord",
     "SCHEMA_VERSION",
     "SUPPORTED_DOC_TYPES",
+    # vector_store
+    "DEFAULT_EMBEDDING_DIMENSION",
+    "DEFAULT_EMBEDDING_MODEL",
+    "FAISSStore",
+    "INDEX_TYPE",
+    "META_VERSION",
+    "IndexMeta",
+    "VectorStore",
+    "VectorStoreCorruptError",
+    "VectorStoreDimensionMismatchError",
+    "VectorStoreError",
+    "VectorStoreSearchError",
 ]
