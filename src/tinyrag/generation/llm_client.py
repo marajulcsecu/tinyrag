@@ -146,8 +146,9 @@ class LLMClient(Protocol):
     """The single seam between TinyRAG and the language model.
 
     Architectural fit: see ``docs/03_architecture_v1.md`` §6.4. Any
-    object with a ``generate`` method that matches this signature
-    satisfies the Protocol — duck-typed, no inheritance required.
+    object with ``generate``, ``model_name``, and ``is_healthy``
+    methods that match these signatures satisfies the Protocol —
+    duck-typed, no inheritance required.
     """
 
     def generate(
@@ -164,6 +165,19 @@ class LLMClient(Protocol):
         (text, stats):
             The full generated text (concatenation of all streamed
             tokens) and timing/token statistics.
+        """
+        ...
+
+    def model_name(self) -> str:
+        """Return the model id this client is configured to call."""
+        ...
+
+    def is_healthy(self, *, timeout_s: float = 5.0) -> bool:
+        """Return ``True`` iff the LLM backend is reachable.
+
+        Used by the ``/health`` API endpoint. Must never raise —
+        return ``False`` on any error so the caller can use the
+        boolean directly.
         """
         ...
 
@@ -205,6 +219,12 @@ class FakeLLMClient:
     token_delay_seconds: float = 0.0
     raise_after_tokens: int | None = None
     stats: GenerationStats = field(default_factory=GenerationStats)
+    #: Override the value returned by :meth:`is_healthy`. Defaults to
+    #: ``True`` (healthy). Tests of the API ``/health`` endpoint flip
+    #: this to ``False`` to exercise the degraded path.
+    healthy: bool = True
+    #: The model name reported by :meth:`model_name`.
+    model: str = "fake-llm"
 
     def generate(
         self,
@@ -242,6 +262,15 @@ class FakeLLMClient:
             duration_seconds=time.monotonic() - start,
         )
         return text, self.stats
+
+    def model_name(self) -> str:
+        return self.model
+
+    def is_healthy(self, *, timeout_s: float = 5.0) -> bool:
+        # The fake never makes a real network call; its health is a
+        # configuration knob so the API /health endpoint can be
+        # exercised without a live model.
+        return self.healthy
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +338,40 @@ class LlamaCppClient:
         if self._owns_client and self.client is not None:
             self.client.close()
             self.client = None
+
+    # ----- public API --------------------------------------------------
+
+    # ----- inspection helpers -----------------------------------------
+
+    def model_name(self) -> str:
+        """Return the model id this client is configured to call.
+
+        The API layer uses this to surface ``which model answered?`` in
+        the response payload and in the observability logs.
+        """
+        return self.model
+
+    def is_healthy(self, *, timeout_s: float = 5.0) -> bool:
+        """Return ``True`` iff llama-server is up and reachable.
+
+        Talks to ``GET /v1/models`` (OpenAI-standard endpoint that
+        llama-server exposes). Any error — connection refused, timeout,
+        non-2xx — counts as unhealthy. The default 5-second timeout is
+        much shorter than :attr:`timeout_s` because this is called from
+        the ``/health`` endpoint and must not block the API thread.
+
+        Raises
+        ------
+        Nothing. ``is_healthy`` is intentionally never-throwing so the
+        API layer can call it directly without a try/except.
+        """
+        try:
+            resp = self._http().get(
+                f"{self.base_url}/v1/models", timeout=timeout_s
+            )
+            return 200 <= resp.status_code < 300
+        except httpx.HTTPError:
+            return False
 
     # ----- public API --------------------------------------------------
 

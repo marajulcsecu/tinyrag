@@ -568,3 +568,126 @@ class TestModuleSurface:
 
     def test_default_max_tokens_is_reasonable(self) -> None:
         assert 64 <= DEFAULT_MAX_TOKENS <= 2048
+
+
+# ---------------------------------------------------------------------------
+# model_name() + is_healthy() — inspection helpers
+# ---------------------------------------------------------------------------
+
+
+class TestModelName:
+    """``model_name()`` returns the configured model id."""
+
+    def test_llamacpp_returns_configured_model(self) -> None:
+        client = LlamaCppClient(
+            base_url="http://test:8080",
+            model="phi-3-mini",
+            client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200))),
+        )
+        try:
+            assert client.model_name() == "phi-3-mini"
+        finally:
+            client.close()
+
+    def test_fake_returns_its_model_field(self) -> None:
+        client = FakeLLMClient(model="fake-model-x")
+        assert client.model_name() == "fake-model-x"
+
+
+class TestIsHealthy:
+    """``is_healthy()`` probes llama-server's ``/v1/models`` endpoint."""
+
+    def test_llamacpp_returns_true_on_200(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/v1/models"
+            return httpx.Response(
+                200,
+                json={"object": "list", "data": [{"id": "phi-3-mini"}]},
+            )
+
+        client = LlamaCppClient(
+            base_url="http://test:8080",
+            model="phi-3-mini",
+            client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+        try:
+            assert client.is_healthy() is True
+        finally:
+            client.close()
+
+    def test_llamacpp_returns_false_on_500(self) -> None:
+        client = LlamaCppClient(
+            base_url="http://test:8080",
+            model="phi-3-mini",
+            client=httpx.Client(
+                transport=httpx.MockTransport(lambda r: httpx.Response(500, text="oops"))
+            ),
+        )
+        try:
+            assert client.is_healthy() is False
+        finally:
+            client.close()
+
+    def test_llamacpp_returns_false_on_connection_error(self) -> None:
+        def handler(_r: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("Connection refused")
+
+        client = LlamaCppClient(
+            base_url="http://test:8080",
+            model="phi-3-mini",
+            client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+        try:
+            assert client.is_healthy() is False
+        finally:
+            client.close()
+
+    def test_llamacpp_is_healthy_never_raises(self) -> None:
+        """The contract: is_healthy must never raise on httpx errors.
+
+        Only ``httpx.HTTPError`` (network / protocol layer) is in
+        scope — a plain ``RuntimeError`` from a buggy transport would
+        be a programmer error and should NOT be swallowed (that
+        would mask real bugs).
+        """
+
+        def handler(_r: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("read timed out")
+
+        client = LlamaCppClient(
+            base_url="http://test:8080",
+            model="phi-3-mini",
+            client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+        try:
+            assert client.is_healthy() is False
+        finally:
+            client.close()
+
+    def test_fake_healthy_default_true(self) -> None:
+        client = FakeLLMClient()
+        assert client.is_healthy() is True
+
+    def test_fake_healthy_can_be_flipped(self) -> None:
+        """Tests of the /health endpoint flip this to exercise the bad path."""
+        client = FakeLLMClient(healthy=False)
+        assert client.is_healthy() is False
+
+
+class TestProtocolConformanceWithNewMethods:
+    """The Protocol now requires model_name() and is_healthy() too."""
+
+    def test_fake_still_satisfies_protocol(self) -> None:
+        client = FakeLLMClient()
+        assert isinstance(client, LLMClient)
+
+    def test_llamacpp_still_satisfies_protocol(self) -> None:
+        client = LlamaCppClient(
+            base_url="http://test:8080",
+            model="phi-3-mini",
+            client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200))),
+        )
+        try:
+            assert isinstance(client, LLMClient)
+        finally:
+            client.close()
