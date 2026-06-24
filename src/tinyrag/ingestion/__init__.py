@@ -10,13 +10,16 @@ layer (vector store + metadata DB). It depends on
 the writes); it is itself called from the FastAPI document routes in
 :mod:`tinyrag.api` and from the CLI script ``scripts/ingest.py``.
 
-Modules (to be added in later Phase 4 steps)
---------------------------------------------
-- :mod:`tinyrag.ingestion.parsers` — PDF / TXT / MD → raw text.
+Modules
+-------
+- :mod:`tinyrag.ingestion.parsers` — PDF / TXT / MD → raw text
+  (Step 4.4). Provides :func:`~tinyrag.ingestion.parsers.parse`,
+  :class:`~tinyrag.ingestion.parsers.DocumentParser` Protocol,
+  and :class:`~tinyrag.ingestion.parsers.ParsedDocument` dataclass.
 - :mod:`tinyrag.ingestion.embedder` — wrapper around
-  ``sentence-transformers`` behind a Protocol.
+  ``sentence-transformers`` behind a Protocol (Step 4.6).
 - :mod:`tinyrag.ingestion.pipeline` — orchestrator: parse → chunk →
-  embed → store.
+  embed → store (Step 4.9).
 
 Why a subpackage and not a single file?
 ---------------------------------------
@@ -35,5 +38,28 @@ Location: ``src/tinyrag/ingestion/``
 
 from __future__ import annotations
 
-# Subpackage is currently a placeholder. Modules will be re-exported
-# here as they are implemented in later Phase 4 steps (4.4, 4.6, 4.9).
+from tinyrag.ingestion.parsers import (
+    DocumentParser,
+    EmptyDocumentError,
+    MarkdownParser,
+    ParsedDocument,
+    ParserError,
+    PdfParser,
+    PdfReadError,
+    TxtParser,
+    UnsupportedFormatError,
+    parse,
+)
+
+__all__ = [
+    "DocumentParser",
+    "EmptyDocumentError",
+    "MarkdownParser",
+    "ParsedDocument",
+    "ParserError",
+    "PdfParser",
+    "PdfReadError",
+    "TxtParser",
+    "UnsupportedFormatError",
+    "parse",
+]
