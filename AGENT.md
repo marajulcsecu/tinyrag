@@ -2,12 +2,12 @@
 
 > **Purpose:** This file is the single source of truth for anyone (human or AI) picking up the TinyRAG project. If you are a new agent, **read this first** before doing anything. It tells you what the project is, what decisions have been made, where things live, and what to do next.
 
-**Last updated:** 2026-06-24 (update 25)
-**Project status:** Step 4.6 complete — embedder (Protocol + `SentenceTransformerEmbedder` + `FakeEmbedder`) is live; ingestion pipeline can now turn parsed chunks into dense vectors ready for the FAISS index
-**Next milestone:** Step 4.7 — Implement the metadata store (SQLite wrapper)
+**Last updated:** 2026-06-24 (update 26)
+**Project status:** Step 4.7 complete — `MetadataStore` (SQLite wrapper) is live; documents, chunks, and query logs are now durably persisted; ingestion pipeline can write to a real DB
+**Next milestone:** Step 4.8 — Implement the FAISS vector store wrapper
 **Canonical roadmap:** `docs/06_roadmap_v2.md` (the older `v1` and `laptop_v1` are historical only)
 **Remote:** `https://github.com/marajulcsecu/tinyrag`
-**Tip of `main`:** `f6eebbd` (see §11 Build Journal)
+**Tip of `main`:** `1808187` (see §11 Build Journal)
 **Venv location:** `~/venvs/tinyrag` (symlinked as `.venv` in project root)
 **OpenBLAS version:** 0.3.26 (verified via pkg-config)
 **llama.cpp:** tag `gguf-v0.19.0` (commit `a290ce626663dae1d54f70bce3ca6d8f67aab62f`) — built at `${HOME}/.cache/llamacpp-build/build/` (colon-path workaround; persistent across reboots since Step 3.4a; symlinked into `llama.cpp/build/`)
@@ -263,59 +263,74 @@ TinyRAG/
 - ✅ **Step 4.4 complete** — document parsers (PDF/TXT/MD); ingestion pipeline can now turn any uploaded file into structured text
 - ✅ **Step 4.5 complete** — token-based chunker; parsed documents split into embedding-ready ~400-token chunks with overlap and sentence-boundary respect
 - ✅ **Step 4.6 complete** — embedder (Protocol + `SentenceTransformerEmbedder` + `FakeEmbedder`); parsed chunks can now be turned into dense 384-dim L2-normalised vectors ready for the FAISS index
-- ⏳ Next: Step 4.7 — Implement the metadata store (SQLite wrapper)
+- ✅ **Step 4.7 complete** — `MetadataStore` (SQLite wrapper); documents, chunks, and query logs are now durably persisted
+- ⏳ Next: Step 4.8 — Implement the FAISS vector store wrapper
 
-**Immediate next step (Step 4.7 — agent action):**
+**Immediate next step (Step 4.8 — agent action):**
 
-Step 4.7 fills `src/tinyrag/storage/metadata_store.py` with a SQLite-backed metadata store keyed by `chunk_id`. The pipeline (Step 4.9) writes one row per chunk (text, source, page, char_offset, vector_id, ingested_at); the retrieval query path reads the same rows back to map a FAISS hit back to its source document + page number for the answer-formatter in Step 4.15. The schema will follow `docs/04_database_design_v1.md` (table name: `chunks`; columns: `chunk_id TEXT PRIMARY KEY`, `text TEXT`, `source TEXT`, `page INTEGER NULLABLE`, `chunk_index INTEGER`, `char_offset INTEGER`, `token_count INTEGER`, `vector_id INTEGER`, `ingested_at TEXT`). All writes are batched in a single transaction (one per document) so an upload failure rolls back cleanly; the connection is opened with `check_same_thread=False` + a `Row factory` of `sqlite3.Row` so FastAPI's async handlers can read columns by name. Plus tests covering the CRUD contract, the batched-transaction rollback, the FAISS-vector_id roundtrip, and the JSON-safety of every column.
+Step 4.8 fills `src/tinyrag/storage/vector_store.py` with a `FAISSStore` class implementing the `VectorStore` Protocol from architecture doc §6.3. Two indices on disk: `data/vector_store/doc.faiss` (384-dim, flat L2 — exact search at our scale of ≤ 5000 chunks) and `data/vector_store/sensor.faiss` (sensor-summary embeddings, separate index so doc/sensor queries can be routed independently). The class exposes `add_vectors(ids, vectors)`, `search(query_vector, k) -> list[(id, score)]`, `save()`, `load()`, `ntotal`, `delete_by_source`. Vector IDs are 32-bit ints assigned at add-time and round-tripped through `chunks.faiss_idx` in the metadata store (Step 4.7) — the pipeline (Step 4.9) keeps the two stores in lock-step. Save/load uses FAISS's `write_index` / `read_index` (binary, ~1 MB per 1000 384-dim vectors). All methods use the `IndexFlatIP` (inner product) variant so cosine similarity = dot product on L2-normalised vectors (which is what `SentenceTransformerEmbedder` produces). The Protocol contract (architecture §6.3) is verified by a `NotAStore` duck-type test. Plus tests covering: add+search round-trip, L2-normalised output preserves cosine, save+load round-trip preserves all vectors, delete-by-source removes the right rows, an empty index returns `[]` from search.
 
-**Optional parallel student action — none for Step 4.7. You can verify the Step 4.6 embedder yourself with:**
+**Optional parallel student action — none for Step 4.8. You can verify the Step 4.7 metadata store yourself with:**
 
 ```bash
-# 1. Run the embedder tests (32 should pass, 8 skipped without the model on disk)
-PYTHONPATH=. .venv/bin/pytest tests/test_embedder.py -v
+# 1. Run the metadata store tests (87 should pass — fully hermetic)
+PYTHONPATH=. ~/venvs/tinyrag/bin/pytest tests/test_metadata.py -v
 
-# 2. Quick REPL probe — the roadmap's "embed 2-3 short texts, get 384-dim vectors" check.
-#    We use FakeEmbedder (no model download) so this works on a fresh clone.
-PYTHONPATH=src .venv/bin/python -c "
-from tinyrag.ingestion import FakeEmbedder
-emb = FakeEmbedder(dimension=384)
-vecs = emb.embed(['hello world', 'goodbye world', 'the quick brown fox'])
-print(f'got {len(vecs)} vectors, each length {len(vecs[0])}')
-print(f'first 4 floats of v[0]: {vecs[0][:4]}')
-print(f'v[0] is unit-length: {sum(x*x for x in vecs[0])**0.5:.6f}')
+# 2. Quick REPL probe — the full insert → list → query-log → cascade-delete
+#    round-trip, on a real (but throwaway) SQLite file. Use /tmp so it's
+#    reaped on reboot; the parent dir is auto-created.
+PYTHONPATH=src ~/venvs/tinyrag/bin/python -c "
+import tempfile, os
+from tinyrag.storage import MetadataStore
 
-# Same input twice → same vector (deterministic)
-v_a = emb.embed(['the same text'])
-v_b = emb.embed(['the same text'])
-print(f'deterministic: {v_a == v_b}')
+# Nested path → parent dir auto-created (no 'unable to open database file')
+with tempfile.TemporaryDirectory() as td:
+    db = os.path.join(td, 'nested', 'sub', 'test.db')
+    store = MetadataStore(db)
+    store.init_schema()
+    print(f'schema version: {store.get_schema_version()}')
 
-# Empty list short-circuits
-print(f'embed([]) == []: {emb.embed([]) == []}')
+    # Insert a document
+    doc_id = store.insert_document(
+        filename='thermo.pdf', doc_type='manual',
+        source_path='data/documents/thermo.pdf',
+        size_bytes=1024, content_hash='abc123',
+        metadata={'page_count': 12, 'author': 'TinyRAG'},
+    )
+    print(f'inserted doc: {doc_id}')
+
+    # Insert 3 chunks in a single batched transaction
+    store.insert_chunks([
+        {'id': f'c{i}', 'document_id': doc_id, 'chunk_index': i,
+         'faiss_idx': i, 'text': f'this is chunk {i} of the manual',
+         'token_count': 7, 'embedding_model': 'all-MiniLM-L6-v2'}
+        for i in range(3)
+    ])
+    store.update_document_chunk_count(doc_id, 3)
+    print(f'docs: {store.count_documents()}, chunks: {store.count_chunks()}')
+
+    # Round-trip: read back the metadata JSON
+    doc = store.get_document(doc_id)
+    print(f'filename: {doc.filename}, type: {doc.doc_type}, chunks: {doc.num_chunks}')
+
+    # Log a query
+    qid = store.log_query(query='how do I reset?', top1_score=0.81,
+                          num_chunks=3, retrieval_ms=23, total_ms=520,
+                          model='phi-3-mini')
+    print(f'logged query id: {qid}')
+
+    # Cascade delete — deletes the document AND its chunks atomically
+    deleted = store.delete_document(doc_id)
+    print(f'deleted {deleted} doc → {store.count_chunks()} chunks remain (FK cascade)')
 "
 
-# 3. End-to-end with the real model (after `make download-llm` or
-#    scripts/download_models.py fetches the embedding model):
-#    Skip this block if the model isn't in models/_hf_cache/.
-PYTHONPATH=src .venv/bin/python -c "
-from tinyrag.config import load_settings
-from tinyrag.ingestion import SentenceTransformerEmbedder
-s = load_settings('../config.yaml')
-emb = SentenceTransformerEmbedder(s.embedding)
-print(f'model: {emb.model_name}')
-print(f'dimension: {emb.dimension} (should be 384 for all-MiniLM-L6-v2)')
-vecs = emb.embed(['how do I reset the thermostat?', 'what is the capital of France?'])
-print(f'embedded {len(vecs)} texts, each length {len(vecs[0])}')
-print(f'unit-length check: {sum(x*x for x in vecs[0])**0.5:.6f}')
-
-# Sanity: paraphrases should be closer than unrelated sentences
-import math
-def cos(a, b): return sum(x*y for x,y in zip(a,b))
-v_extra = emb.embed(['reset procedure for the thermostat?'])
-sim_close = cos(vecs[0], v_extra[0])
-sim_far = cos(vecs[0], vecs[1])
-print(f'paraphrase similarity: {sim_close:.3f}  vs  unrelated: {sim_far:.3f}  (paraphrase should be higher)')
-"
+# 3. Visual inspection in DB Browser for SQLite (the roadmap's spot-check):
+#    - Open /tmp/whatever.db you wrote above
+#    - Confirm 4 tables: documents, chunks, query_log, schema_version
+#    - Confirm the schema_version row has version=1, description='Initial schema'
+#    - Click on chunks → confirm ON DELETE CASCADE is set on document_id FK
+#    - PRAGMA journal_mode should report 'wal' (concurrent reads during ingestion)
+```
 ```
 
 The first command runs the test suite. The second is the exact "feed a 2000-token text, verify you get ~5 chunks with overlap" check from the roadmap §4.5 — note how each chunk ends at a sentence boundary (`.`). The third shows the parsers → chunker pipeline: a 200-sentence TXT becomes N chunks, each carrying the source filename (`source=manual.txt`) and the chunk's character offset in the original document.
@@ -410,6 +425,7 @@ This section is the **running log of every step executed**, in execution order. 
 | Step | Description | Status | Commit SHA | Commit message | Notes |
 |------|-------------|--------|------------|----------------|-------|
 | 4.6 | Implement the embedder (Protocol + concrete) | ✅ Done | `f6eebbd` | `feat(ingestion): add EmbeddingModel Protocol + SentenceTransformerEmbedder (Step 4.6)` | Added `src/tinyrag/ingestion/embedder.py` (~390 lines) — the **text-to-vector seam** of the ingestion pipeline. Three concerns in one module: the Protocol, a real implementation, a deterministic stub. **`:class:`EmbeddingModel`** `@runtime_checkable` Protocol (matches architecture doc §6.2 verbatim): a `dimension: int` property and an `embed(texts: list[str]) -> list[list[float]]` method. The `@runtime_checkable` lets tests assert `isinstance(x, EmbeddingModel)` without inheritance — `test_embedder.py::TestProtocolIsRuntime` proves both NotAnEmbedder and MissingDimension fail. **`:class:`FakeEmbedder`** — SHA-256 digest → floats, L2-normalised, no semantic meaning (test-only). Tile-to-dim logic handles dim < 32 / dim == 32 / dim > 32 via the same modulo loop; empty input returns `[]`, empty string returns one vector, Unicode input is accepted. **`:class:`SentenceTransformerEmbedder`** — the real deal. **Lazy load**: construction is genuinely cheap (verified by `test_construction_does_not_load_model` — a bogus model id doesn't raise until `.embed()` is called; only the 250 MB `sentence-transformers` import + model-load cost is deferred, not paid at import). `.embed()` calls `st_model.encode(texts, batch_size=…, convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False)` and converts the numpy output back to pure-Python `list[list[float]]` (JSON-safe for the SQLite metadata store). **`.dimension`** triggers the same lazy load so callers can probe without side-effecting. **`.is_loaded`** exposes whether the model is in RAM (the FastAPI startup hook in Step 4.17 will check this to surface a "loading model…" message). **`.load()`** is an explicit warm-up so callers that want to fail-fast at startup can do so. **`:class:`EmbeddingError`** hierarchy: `EmbeddingModelNotFoundError` (network / bad HF id / missing path → map to HTTP 503) and `EmbeddingDimensionMismatchError` (model's actual dim ≠ configured dim → catches the "swapped the model but forgot to update embedding.dimension" foot-gun). Both exceptions carry `.model_name` so the API can echo it in the 503 response. Updated `src/tinyrag/ingestion/__init__.py` to re-export the 6 new symbols. Plus `tests/test_embedder.py` — **40 tests total** (32 pass hermetically, 8 skip-when-cache-empty integration tests): TestPublicSurface (6 — every re-export lands), TestProtocolIsRuntime (4 — both concretes pass `isinstance(..., EmbeddingModel)`, NotAnEmbedder + MissingDimension both fail), TestFakeEmbedder (11 — dim property, validation for ≤ 0 dim, list-of-lists shape, **pure-Python floats (not numpy)**, all requested dims work incl. 1/33/384/768, L2-normalised, deterministic, different inputs differ, empty list, empty string, Unicode), TestErrorHierarchy (5 — both subclasses inherit, single `except EmbeddingError` catches both, `model_name` preserved, default None), TestSentenceTransformerEmbedderConstruction (4 — bogus model id doesn't raise at construction, `.dimension` triggers lazy load with a bogus id so the test is hermetic, `model_name` property reflects settings, `is_loaded` starts False), TestSentenceTransformerEmbedderEmbedContract (2 — `embed([])` short-circuits without loading the model, bogus model id raises on first embed with model_name preserved), TestSentenceTransformerEmbedderReal (8 — **SKIPPED unless `models/_hf_cache/models--sentence-transformers--all-MiniLM-L6-v2/` is present**, so CI is hermetic by default; auto-enables after a manual download). The gated tests verify: dim==384, L2-norm after encode, deterministic across two model instances, **semantic similarity** (paraphrase > unrelated — the behavioural check that proves we have a real embedding model, not just FakeEmbedder), batch_size=1 vs batch_size=8 produces identical vectors, empty list, Unicode. Full suite: **385 passed, 8 skipped** with `PYTHONPATH=.` (was 357; +32 hermetic embedder tests; the 8 real-model tests skip cleanly because no model is in `models/_hf_cache/` on this machine). The 4 pre-existing failures in `test_chunker.py` and `test_download_models.py` are unrelated to this step (existed on main before this commit, verified via `git stash`). Lint clean (`ruff check src tests` reports 0 errors — auto-fixed 6 B905 `zip()` without `strict=` and 1 trailing-newline nit). No new runtime deps — `sentence-transformers==3.2.1` was already pinned from Step 3.2. **Quick REPL probe (FakeEmbedder, runs anywhere)**: 3 texts → 3 vectors of length 384, each L2-normalised; same text twice → identical vector (SHA-256 deterministic). **Real-model probe** (after `make download-llm`): paraphrase similarity (~0.6) >> unrelated similarity (~0.0) — the model actually understands "reset the thermostat" vs "factory-reset the thermostat". |
+| 4.7 | Implement the metadata store (SQLite wrapper) | ✅ Done | `1808187` | `feat(storage): add MetadataStore SQLite wrapper (Step 4.7)` | Added `src/tinyrag/storage/metadata.py` (~660 lines) — the **persistence seam** for documents, chunks, and query logs. Schema is the verbatim DDL from `docs/04_database_design_v1.md` §5.2 (4 tables: `documents` / `chunks` / `query_log` / `schema_version` + 7 indexes). **`MetadataError` hierarchy**: `MetadataSchemaError` (foreign DB file — distinguished from "our schema, no rows" which returns `None`), `MetadataIntegrityError` (FK / UNIQUE / CHECK / NOT NULL violation, with `.db_path` preserved), `MetadataNotFoundError`. **Frozen dataclasses** for typed reads: `DocumentRecord`, `ChunkRecord`, `QueryLogRecord` — callers never touch raw tuples. **Full CRUD contract**: `init_schema` (idempotent, auto-creates nested parent dirs), `get_schema_version`, `insert_document` (auto-UUID + explicit UUID supported + `metadata_json` JSON serialisation + bad `doc_type` ValueError before SQL), `update_document_chunk_count` (bumps `last_modified`), `insert_chunks` (**batched in a single transaction** — atomicity invariant: all-or-none; a duplicate `(document_id, chunk_index)` rolls back the WHOLE batch; `text_preview` auto-truncated at 200 chars + explicit override), `get_document` (by id), `get_document_by_hash` (dedup signal at re-ingest — returns OLDEST match), `list_documents` (newest first, **`rowid` tiebreak** for stable ordering when same-second inserts have identical `ingested_at`), `get_chunks_by_ids` (preserves caller order, silently skips unknown ids — TOCTOU window with FAISS, dedupes repeated ids, **batches IN clauses at 500** to stay under SQLite's 999-placeholder limit), `get_chunks_by_document` (ordered by `chunk_index`), `delete_document` (cascades to chunks via `PRAGMA foreign_keys=ON` re-applied on every connection — without it the cascade silently wouldn't fire), `count_documents`, `count_chunks`, `log_query` (auto-id, all-NULL partial result supported), `get_recent_queries` (newest first, limit validation). **Per-request fresh connection per §5.4** (~1 ms to open). Every connection applies `PRAGMA journal_mode=WAL` (concurrent reads during ingestion) + `PRAGMA foreign_keys=ON` (cascade enforcement) — both per-connection, SQLite has no default mechanism. **`:memory:`` quirk handled**: SQLite's `:memory:` is per-connection, so `init_schema` on one call wouldn't persist to the next; we use a thread-local connection handle for the in-memory case so schema survives across `_connect` calls. **Context-manager** support (`__enter__` / `__exit__`) — cached connection for the `with` block's duration. **Module-level constants**: `SCHEMA_VERSION=1`, `SUPPORTED_DOC_TYPES` (frozenset), `TEXT_PREVIEW_CHARS=200`, `MAX_IN_CLAUSE_BATCH=500`. **Schema exposed as staticmethod** `_schema_sql()` so it's grep-able + REPL-inspectable. Updated `src/tinyrag/storage/__init__.py` to re-export the 10 new symbols. Plus `tests/test_metadata.py` — **87 hermetic tests**: TestPublicSurface (9 — every re-export + DocumentRecord identity from both subpackage paths), TestSchemaInit (6 — all 4 tables + 7 indexes created, schema_version row, idempotent re-runs, nested parent dirs auto-created), TestPragmas (2 — WAL + FK enforcement), TestSchemaVersion (3 — current version, empty table → None, foreign DB → MetadataSchemaError), TestInsertDocument (8 incl. parametrize — round-trip, auto-UUID, explicit UUID, metadata_json round-trip + None → NULL, bad doc_type rejected for 5 bad values, all 3 supported types accepted, duplicate hash accepted per design, IntegrityError carries db_path), TestUpdateChunkCount (4), TestInsertChunks (8 — **atomicity invariant** verified explicitly: duplicate chunk_index rolls back the WHOLE batch), TestGetDocument (5), TestListDocuments (4 — **rowid tiebreak** verified), TestGetChunksByIds (6 — **1200-id input batched correctly** across the 500 boundary), TestGetChunksByDocument (2), TestDeleteDocument (3 — **cascade verified** explicitly), TestCounters (2), TestQueryLog (6 — incrementing auto-ids, newest-first, partial NULL, full result, limit validation, limit cap), TestSqlInjectionGuard (3 — chunk text + filename + query text with `DROP TABLE`/`UPDATE pwn` attempts stored literally — parameterisation works), TestJsonMetadataRoundTrip (2), TestContextManager (2), TestInMemoryDatabase (3). **Bugs found + fixed during testing**: (a) `__exit__` originally called `close()` on a `_GeneratorContextManager` (forgot that `_connect` is `@contextmanager`-decorated, not a connection) → fixed by adding a separate `_open_connection()` for the cached context-manager path; (b) `list_documents` ordering was non-deterministic when 3 inserts happened in the same wall-clock second → fixed by adding `rowid DESC` tiebreak; (c) `get_schema_version` couldn't distinguish "no table → foreign DB" from "table exists but empty → not yet initialised" → fixed by checking `sqlite_master` first; (d) `:memory:` databases reset on every `_connect` call → fixed via thread-local connection handle. Full suite: **424 passed, 8 skipped** with `PYTHONPATH=.` (was 385; +87 metadata tests, +0 regressions; the 8 embedder integration tests still skip cleanly). The 4 pre-existing failures in `test_chunker.py` and `test_download_models.py` are unrelated to this step (existed on main before this commit, verified via `git stash` during Step 4.6). Lint clean (`ruff check src tests` reports 0 errors — auto-fixed 6 B905 `zip()` without `strict=`, 1 trailing-newline, 1 import sort, 1 DTZ005 `utcnow` → `datetime.UTC`; 1 SIM222 `... or True` tautology manually cleaned up). No new runtime deps — `sqlite3` is stdlib. **Quick REPL probe (in `$HOME/venvs/tinyrag`)**: full insert → list → query-log → cascade-delete round-trip on a nested-path throwaway DB (parent dir auto-created) → confirmed 4 tables, 3 chunks, 1 query-log, schema_version=1, cascade delete removes 3 chunks atomically. **DB Browser for SQLite spot-check** (the roadmap's "visually confirm the schema" check): open the throwaway DB → see `documents` / `chunks` / `query_log` / `schema_version`, confirm `chunks.document_id` FK has `ON DELETE CASCADE`, PRAGMA `journal_mode=wal`, `PRAGMA foreign_keys=on`. |
 
 ### 11.3 Phase 5 — Test (laptop)
 
