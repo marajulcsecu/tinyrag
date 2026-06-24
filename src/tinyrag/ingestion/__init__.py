@@ -38,6 +38,14 @@ Location: ``src/tinyrag/ingestion/``
 
 from __future__ import annotations
 
+from tinyrag.ingestion.embedder import (
+    EmbeddingDimensionMismatchError,
+    EmbeddingError,
+    EmbeddingModel,
+    EmbeddingModelNotFoundError,
+    FakeEmbedder,
+    SentenceTransformerEmbedder,
+)
 from tinyrag.ingestion.parsers import (
     DocumentParser,
     EmptyDocumentError,
@@ -52,6 +60,7 @@ from tinyrag.ingestion.parsers import (
 )
 
 __all__ = [
+    # Parsers (Step 4.4)
     "DocumentParser",
     "EmptyDocumentError",
     "MarkdownParser",
@@ -62,4 +71,11 @@ __all__ = [
     "TxtParser",
     "UnsupportedFormatError",
     "parse",
+    # Embedder (Step 4.6)
+    "EmbeddingDimensionMismatchError",
+    "EmbeddingError",
+    "EmbeddingModel",
+    "EmbeddingModelNotFoundError",
+    "FakeEmbedder",
+    "SentenceTransformerEmbedder",
 ]
