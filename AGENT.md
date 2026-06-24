@@ -2,12 +2,12 @@
 
 > **Purpose:** This file is the single source of truth for anyone (human or AI) picking up the TinyRAG project. If you are a new agent, **read this first** before doing anything. It tells you what the project is, what decisions have been made, where things live, and what to do next.
 
-**Last updated:** 2026-06-23 (update 18)
-**Project status:** Step 3.9 complete — Phase 3 end-to-end smoke test green ✅
-**Next milestone:** Step 4.1 — Initialize the project skeleton (folders only)
+**Last updated:** 2026-06-23 (update 19)
+**Project status:** Step 4.1 complete — project skeleton (9 subpackages) ready for Phase 4 code drops
+**Next milestone:** Step 4.2 — Set up `config.yaml` + `Settings` loader
 **Canonical roadmap:** `docs/06_roadmap_v2.md` (the older `v1` and `laptop_v1` are historical only)
 **Remote:** `https://github.com/marajulcsecu/tinyrag`
-**Tip of `main`:** `d882691` (see §11 Build Journal)
+**Tip of `main`:** `a7b29fd` (see §11 Build Journal)
 **Venv location:** `~/venvs/tinyrag` (symlinked as `.venv` in project root)
 **OpenBLAS version:** 0.3.26 (verified via pkg-config)
 **llama.cpp:** tag `gguf-v0.19.0` (commit `a290ce626663dae1d54f70bce3ca6d8f67aab62f`) — built at `/tmp/llamacpp-build/build/` (colon-path workaround; symlinked into `llama.cpp/build/`)
@@ -100,96 +100,130 @@
 
 ---
 
-## 6. Project Structure (planned)
+## 6. Project Structure (canonical — see `docs/03_architecture_v1.md` §5)
+
+The layout below is the **canonical** Python package tree. It is the
+output of Step 4.1 and is the same tree you'll see in
+`docs/03_architecture_v1.md` §5. Files marked with a step number
+(e.g. `4.5`) are not yet created; they will be added in that
+Phase 4 step.
 
 ```
 TinyRAG/
 ├── AGENT.md                      ← this file
 ├── README.md                     ← quick start
 ├── LICENSE
-├── config.yaml                   ← single source of runtime config
-├── setup.sh                      ← one-command install
-├── run.sh                        ← one-command start
+├── config.yaml                   ← single source of runtime config (Step 4.2)
+├── setup.sh                      ← one-command install (Step 4.24)
+├── run.sh                        ← one-command start (Step 4.24)
 ├── pyproject.toml                ← Python packaging
-├── requirements.txt              ← pinned deps
+├── requirements.txt              ← pinned runtime deps
+├── requirements-dev.txt          ← pinned dev/test deps
+├── Makefile                      ← one-liner targets (test, lint, run, etc.)
 ├── .gitignore
 │
-├── docs/                         ← all planning docs
-│   ├── 00_high_level_plan.md     ← journey map
-│   ├── 01_project_scope_v2.md    ← refined scope
-│   ├── 02_srs_v1.md              ← (next to write)
-│   ├── 03_architecture_v1.md     ← (after SRS)
-│   ├── 04_database_design_v1.md  ← (after architecture)
-│   ├── 05_tech_stack_v1.md       ← (after database)
-│   ├── 06_roadmap_v1.md          ← (after tech stack)
-│   ├── evaluation/               ← evaluation methodology, gold-set
-│   └── laptop_fallback/          ← laptop-specific notes
+├── docs/                         ← all planning docs (Phase 0-2, complete)
 │
 ├── src/                          ← all source code
 │   └── tinyrag/
-│       ├── __init__.py
-│       ├── main.py               ← FastAPI app entry
-│       ├── config.py             ← loads config.yaml
+│       ├── __init__.py           ← package docstring (Step 4.1)
+│       ├── main.py               ← FastAPI app factory (Step 4.17)
+│       ├── config.py             ← loads config.yaml (Step 4.2)
 │       │
-│       ├── ingestion/            ← doc → chunks → embeddings → vector store
-│       │   ├── parsers.py        ← PDF / TXT / MD
-│       │   ├── chunker.py
-│       │   ├── embedder.py
-│       │   └── pipeline.py
+│       ├── api/                  ← HTTP layer (Step 4.1) — Step 4.17+ fills it
+│       │   ├── __init__.py
+│       │   ├── routes_query.py   ← POST /api/query, GET /api/status (4.19)
+│       │   ├── routes_docs.py    ← POST/GET/DELETE /api/documents (4.18)
+│       │   └── routes_admin.py   ← POST /api/admin/reindex (4.19)
 │       │
-│       ├── retrieval/            ← query → top-k chunks
-│       │   ├── retriever.py
-│       │   └── reranker.py       ← (optional, future)
+│       ├── core/                 ← Domain logic, no I/O (Step 4.1) — 4.5+ fills it
+│       │   ├── __init__.py
+│       │   ├── chunker.py        ← Token-based chunking (4.5)
+│       │   ├── retriever.py      ← Query → top-k chunks (4.12)
+│       │   ├── prompt_builder.py ← Context + query → prompt (4.11)
+│       │   ├── answer.py         ← Answer + citations dataclass (4.11)
+│       │   └── sensor_summarizer.py ← Sensor data → text chunks (4.14)
 │       │
-│       ├── generation/           ← prompt + retrieved → answer
-│       │   ├── prompt_builder.py
-│       │   ├── llm_client.py     ← talks to llama.cpp
-│       │   └── answer.py
+│       ├── ingestion/            ← Doc → vector-store pipeline (Step 4.1) — 4.4+ fills it
+│       │   ├── __init__.py
+│       │   ├── pipeline.py       ← Orchestrator: parse → chunk → embed → store (4.9)
+│       │   ├── parsers.py        ← PDF / TXT / MD → text (4.4)
+│       │   └── embedder.py       ← sentence-transformers wrapper (4.6)
 │       │
-│       ├── sensors/              ← abstract + concrete sources
-│       │   ├── base.py           ← SensorSource protocol
-│       │   ├── simulated.py
-│       │   ├── serial_dht.py     ← DHT22 over GPIO
-│       │   └── mqtt.py
+│       ├── generation/           ← LLM seam (Step 3.7a — already exists)
+│       │   ├── __init__.py
+│       │   └── llm_client.py     ← LLMClient Protocol + LlamaCppClient + FakeLLMClient
 │       │
-│       ├── storage/              ← vector store + metadata DB
-│       │   ├── vector_store.py
-│       │   └── metadata.py       ← SQLite for chunk metadata
+│       ├── storage/              ← Persistence (Step 4.1) — 4.7+ fills it
+│       │   ├── __init__.py
+│       │   ├── vector_store.py   ← FAISS wrapper (4.8)
+│       │   └── metadata.py       ← SQLite wrapper (4.7)
 │       │
-│       ├── api/                  ← FastAPI routes
-│       │   ├── routes_query.py
-│       │   ├── routes_docs.py
-│       │   └── routes_admin.py
+│       ├── sensors/              ← Pluggable sensor sources (Step 4.1) — 4.13 fills it
+│       │   ├── __init__.py
+│       │   ├── base.py           ← SensorSource Protocol
+│       │   ├── simulated.py      ← SimulatedCSVSource
+│       │   ├── serial_dht.py     ← RealSerialSource (DHT22 + PIR)
+│       │   └── mqtt.py           ← MQTTBrokerSource
 │       │
-│       └── ui/                   ← static web assets
-│           ├── static/
-│           └── templates/
+│       ├── input_adapters/       ← Pluggable input (Step 4.1) — 4.19+ fills it
+│       │   ├── __init__.py
+│       │   ├── base.py           ← InputAdapter Protocol
+│       │   ├── text.py           ← TextInputAdapter
+│       │   └── voice.py          ← VoiceInputAdapter (stretch)
+│       │
+│       ├── ui/                   ← Static web assets (Step 4.1) — 4.21+ fills it
+│       │   ├── __init__.py
+│       │   ├── static/           ← style.css, chat.js, admin.js (4.21+)
+│       │   │   └── .gitkeep      ← placeholder until real files land
+│       │   └── templates/        ← index.html, admin.html (4.21+)
+│       │       └── .gitkeep      ← placeholder until real files land
+│       │
+│       ├── observability/        ← Structured logging (Step 4.1) — 4.3 fills it
+│       │   ├── __init__.py
+│       │   └── logger.py         ← structlog config + get_logger
+│       │
+│       └── models/               ← GGUF catalog + downloader (Step 3.5 — predates §5)
+│           ├── __init__.py
+│           ├── registry.py       ← MODEL_REGISTRY + ModelEntry
+│           └── downloader.py     ← ModelDownloader with SHA-256 verify
 │
 ├── data/                         ← runtime data (gitignored)
 │   ├── documents/                ← uploaded PDFs/MD
-│   ├── sensor_logs/              ← CSV/JSON sensor data
+│   ├── sensor_logs/              ← CSV/JSON sensor data (synthetic_30d.csv from Step 3.8)
 │   ├── vector_store/             ← FAISS index files
 │   └── metadata.db               ← SQLite
 │
 ├── models/                       ← downloaded GGUF models (gitignored)
 │
 ├── tests/                        ← pytest unit tests
-│   ├── test_chunker.py
-│   ├── test_retriever.py
-│   ├── test_prompt_builder.py
-│   └── test_parsers.py
+│   ├── conftest.py               ← shared fixtures (Step 4.1 — empty for now)
+│   ├── test_smoke.py             ← runtime-deps import check (Step 3.2)
+│   ├── test_skeleton.py          ← project-layout integrity (Step 4.1)
+│   ├── test_llm_client.py        ← LLMClient Protocol + concrete (Step 3.7a)
+│   ├── test_download_models.py   ← GGUF downloader (Step 3.5)
+│   ├── test_generate_synthetic_sensors.py ← synthetic data (Step 3.8)
+│   ├── test_smoke_test.py        ← Phase 3 e2e smoke (Step 3.9)
+│   ├── test_chunker.py           ← (4.5)
+│   ├── test_retriever.py         ← (4.12)
+│   ├── test_prompt_builder.py    ← (4.11)
+│   └── test_parsers.py           ← (4.4)
 │
 ├── scripts/                      ← operational scripts
-│   ├── download_models.py
-│   ├── ingest.py                 ← CLI: ingest a document
-│   ├── evaluate.py               ← run the 20-Q eval set
-│   └── benchmark.py              ← measure latency, RAM
+│   ├── download_models.py        ← GGUF downloader CLI (Step 3.5)
+│   ├── generate_synthetic_sensors.py ← 30-day sensor data (Step 3.8)
+│   ├── smoke_test.py             ← Phase 3 e2e smoke (Step 3.9)
+│   ├── verify_llamacpp.py        ← llama.cpp sanity check (Step 3.4)
+│   ├── build_llamacpp.sh         ← llama.cpp build (Step 3.4)
+│   ├── ingest.py                 ← CLI: ingest a document (4.9)
+│   ├── evaluate.py               ← run the 20-Q eval set (5.4)
+│   └── benchmark.py              ← measure latency, RAM (5.7)
 │
 └── reports/                      ← generated benchmarks, eval results
     ├── latency.csv
     ├── ram_usage.csv
     ├── accuracy_per_model.csv
-    └── final_report.pdf          ← capstone report
+    └── final_report.pdf          ← capstone report (7.7)
 ```
 
 ---
@@ -222,13 +256,14 @@ TinyRAG/
 - ✅ All 8 planning docs complete (Phase 0–2 done)
 - ✅ Evaluation methodology complete (gold set + scoring rubric)
 - ✅ **Phase 3 complete (Steps 3.1–3.9)** — repo, env, system deps, llama.cpp, all 4 GGUF models, LLMClient, 30-day synthetic sensor data, and the Phase 3 end-to-end smoke test
-- ⏳ Next: Step 4.1 — Initialize the project skeleton (folders only)
+- ✅ **Step 4.1 complete** — 9 subpackages from `docs/03_architecture_v1.md` §5 are now importable Python subpackages, each with a docstring explaining its responsibility
+- ⏳ Next: Step 4.2 — Set up `config.yaml` + `Settings` loader
 
-**Immediate next step (Step 4.1 — agent action):**
+**Immediate next step (Step 4.2 — agent action):**
 
-Phase 4 begins the actual RAG system build. Step 4.1 is a layout-only commit: create the `src/tinyrag/` subpackage skeleton (`ingestion/`, `retrieval/`, `generation/`, `sensors/`, `storage/`, `api/`, `ui/`) with empty `__init__.py` files and module-level docstrings explaining what each subpackage will hold. No logic yet — just the directory structure that every later Phase 4 step will drop code into.
+Step 4.2 introduces the *single source of runtime config* — a typed `Settings` object loaded from `config.yaml` at startup. Every later Phase 4 step (LLM model id, embedder model id, FAISS index path, sensor source kind, server port, log level) reads from `Settings` instead of hardcoding values. This is what makes TinyRAG portable across the Pi 5 and the laptop: only `config.yaml` differs.
 
-**Optional parallel student action — none for Step 4.1. You can verify the Phase 3 end-to-end smoke test any time:**
+**Optional parallel student action — none for Step 4.2. You can verify the Phase 3 end-to-end smoke test any time:**
 
 ```bash
 # Terminal 1 (in one window — leave running):
@@ -241,6 +276,14 @@ make smoke-e2e E2E_CLIENT=fake
 ```
 
 If `make smoke-e2e` (real) returns `[ OK ] Phase 3 smoke test passed.` and a sensible answer to "What is 2+2?", the entire Phase 3 stack — native llama.cpp + downloaded model + LLMClient + structured error handling — works end-to-end.
+
+You can also verify the Step 4.1 skeleton yourself with:
+
+```bash
+tree src tests -L 3        # should match docs/03_architecture_v1.md §5
+PYTHONPATH=. .venv/bin/pytest tests/test_skeleton.py -v
+PYTHONPATH=. .venv/bin/python -c "import tinyrag; print(tinyrag.__doc__)"
+```
 
 ---
 
@@ -287,8 +330,8 @@ This section is the **running log of every step executed**, in execution order. 
 | 3.7a | LLMClient Protocol + LlamaCppClient + smoke test | ✅ Done | `ee984c0` | `feat(llm): add LLMClient Protocol + LlamaCppClient + smoke test (Step 3.7)` | Added `src/tinyrag/generation/{__init__,llm_client}.py` (~430 lines): `LLMClient` `@runtime_checkable` Protocol, `FakeLLMClient` deterministic stub (for tests / offline dev), `LlamaCppClient` real HTTP/SSE client (talks to llama-server's `/v1/chat/completions` with stream=true, parses Server-Sent Events, extracts `choices[].delta.content`, terminates on `[DONE]`, captures `usage` block, falls back to whitespace-split token estimation when usage is missing). Typed exception hierarchy: `LLMError` → `LLMUnavailableError` (5xx, connection, timeout) / `LLMRefusedError` (4xx). Lazy httpx.Client ownership. Plus `scripts/smoke_test_llm.py` (CLI: `--model`, `--all`, `--base-url`, `--prompt`, `--max-tokens`, `--models-dir`, `--json`) and `tests/test_llm_client.py` — **31 hermetic tests** using `httpx.MockTransport` covering: ChatMessage shape, Protocol duck-typing (no inheritance), FakeLLMClient canned responses + overrides + raise_after_tokens, LlamaCppClient SSE parsing (concatenation, [DONE] termination, malformed lines, role-only chunks), 5xx/4xx/connection error mapping, lazy client ownership, multi-message (system+user) roundtrip. New Makefile targets: `smoke-llm`, `smoke-llm-all`. **This is technically an "extra" step that doesn't appear in the roadmap by name** — the roadmap's Phase 3 only requires the LLM to be downloadable + runnable, but writing the LLMClient Protocol now means Phase 4 (FastAPI) can start straight away. Documented here so future contributors know where the LLM seam lives. |
 | 3.8 | Generate synthetic sensor data | ✅ Done | `b7680d3` | `feat(sensors): add 30-day synthetic sensor generator (Step 3.8)` | Added `scripts/generate_synthetic_sensors.py` (~480 lines): numpy + pandas, SEED=42 reproducibility, 5-min resolution, 6 sensors (living_room_temp, living_room_hum, bedroom_temp, bedroom_hum, kitchen_motion, house_energy), long-format CSV output to `data/sensor_logs/synthetic_30d.csv` (gitignored). Per-sensor physics: temperature = daily sinusoid + per-room offset + Gaussian noise; humidity = weakly anti-correlated with temp, bounded [30, 80]; motion = Bernoulli with hour-of-day + weekday/weekend rates; energy = base draw + morning/evening peaks + weekend multiplier + 5% appliance surges. CLI: `--start`, `--days`, `--interval-min`, `--out`, `--seed`, `--summary`, `--json`. Generated 51,840 rows × 6 sensors (30 days × 288 ticks/day). Plus `tests/test_generate_synthetic_sensors.py` — **34 hermetic tests** covering: schema conformance (§6.1 columns + dtypes + canonical sensors), no NaN, realistic value ranges (temp 15-30, humidity 30-80, motion 0/1, energy ≥ 0), daily patterns (afternoon temp peak, dinner motion peak), SEED=42 reproducibility (same/different seed → same/different output), summary helper, time-grid correctness (5-min spacing, no duplicates per sensor), custom start date. Full suite: **115/115 tests pass** (was 81, added 34). No new runtime deps — `pandas` + `numpy` were already pinned. |
 | 3.9 | Phase 3 checkpoint: end-to-end smoke test | ✅ Done | `d882691` | `feat(smoke): add Phase 3 end-to-end smoke test (Step 3.9)` | Added `scripts/smoke_test.py` (~370 lines): hard-coded "What is 2+2?" probe sent through `LLMClient` (real llama-server or `FakeLLMClient`), `SmokeResult` dataclass with `to_dict()` for JSON output, `print_human` / `print_json` formatters, CLI with `--client {real,fake}`, `--base-url`, `--model`, `--query`, `--max-tokens`, `--json`, `--quiet`. Exit codes: 0 = success, 1 = empty/error, 2 = argparse. Catches every `LLMError` and converts to a structured failed result (no traceback to stderr). Plus `tests/test_smoke_test.py` — **26 hermetic tests** covering: contract constants (defaults match Makefile), client factories, `run_smoke()` success/empty/whitespace/LLMError paths, `SmokeResult.to_dict()` shape + JSON-safety, full `main()` end-to-end (`--json`/`--quiet`/`--query`/bad-client exit 2/no-server exit 1+structured-error), `print_human`/`print_json` formatting. All hermetic — uses FakeLLMClient or synthetic BrokenClient/SilentClient classes; no network. Plus new `make smoke-e2e` target honoring `E2E_CLIENT=fake` for hermetic CI mode. **Bonus fix in same commit:** Makefile help-regex bug — `[a-zA-Z_-]` didn't match digits, so targets like `smoke-e2e` (digit `2`) were silently dropped from `make help`. Fixed across all 8 `grep -E` occurrences. Verified: `make smoke-e2e E2E_CLIENT=fake` exits 0 with `[ OK ]` banner; `make smoke-e2e` (no llama-server) exits 1 with structured `LLMError: ...Connection refused...` JSON. **Phase 3 is now complete.** Full suite: **141/141 tests pass** (was 115, added 26). Lint clean. |
-| 4.1 | Initialize the project skeleton (folders only) | ⏳ Next | — | — | Per docs/06_roadmap_v2.md Phase 4. |
-| 4.2 | Set up `config.yaml` + `Settings` loader | ⬜ Pending | — | — | Per docs/06_roadmap_v2.md Phase 4. |
+| 4.1 | Initialize the project skeleton (folders only) | ✅ Done | `a7b29fd` | `feat(skeleton): initialize project skeleton folders (Step 4.1)` | Created the full `src/tinyrag/` subpackage tree from `docs/03_architecture_v1.md` §5. **9 new subpackages** (api, core, ingestion, storage, sensors, input_adapters, ui, observability + the rewritten top-level `__init__.py`); `tinyrag.generation` and `tinyrag.models` already existed from earlier steps. Every `__init__.py` has a non-empty docstring explaining the subpackage's responsibility, listing the modules it will hold, and pointing at the Phase 4 step numbers that will create them. Each docstring follows the same convention as `tinyrag.generation.__init__` (which already existed): "Why a subpackage?" rationale + "Location: ..." footer. The top-level `__init__.py` was rewritten from empty to a full package docstring that lists every subpackage and explains the one-way dependency rule (api → core → stdlib only). **`tests/conftest.py`** created with a docstring-only stub (no fixtures yet — they'll land in Steps 4.2/4.5 as the test suite grows). **`ui/static/` and `ui/templates/`** created with `.gitkeep` placeholders so git tracks the otherwise-empty dirs; placeholders will be removed when the actual CSS/JS/HTML files land in Steps 4.21-4.23. **`tests/test_skeleton.py`** — **57 hermetic tests** guarding the layout: (1) every subpackage dir exists with non-empty `__init__.py` (parametrised over 10 subpackages × 3 checks = 30), (2) every subpackage is importable (10), (3) UI subdirs exist + have `.gitkeep` (4), (4) `tests/conftest.py` + `tests/test_smoke.py` still present + have key markers (3), (5) **no `__init__.py` may import a runtime dep** (faiss, fastapi, sentence_transformers, torch, structlog, pydantic, yaml, pdfplumber — 10 tests) — this last guard catches a common mistake: a future contributor adding `from .llm_client import LLMClient` to the top-level `__init__.py` would transitively pull in httpx and break the smoke import check on a fresh machine. Full suite: **198/198 tests pass** (was 141, +57). Lint clean (after `ruff check --fix` for 2 trailing-newline warnings). No new runtime deps. Structure verified: `tree src tests -L 3` matches §5 exactly. |
+| 4.2 | Set up `config.yaml` + `Settings` loader | ⏳ Next | — | — | Per docs/06_roadmap_v2.md Phase 4. |
 
 ### 11.2 Phase 4 — Build (laptop)
 
