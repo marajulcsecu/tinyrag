@@ -280,9 +280,21 @@ If `make smoke-e2e` (real) returns `[ OK ] Phase 3 smoke test passed.` and a sen
 You can also verify the Step 4.1 skeleton yourself with:
 
 ```bash
-tree src tests -L 3        # should match docs/03_architecture_v1.md §5
-PYTHONPATH=. .venv/bin/pytest tests/test_skeleton.py -v
-PYTHONPATH=. .venv/bin/python -c "import tinyrag; print(tinyrag.__doc__)"
+# 1. See the project tree — should match docs/03_architecture_v1.md §5
+tree src tests -L 3
+
+# 2. Run the skeleton integrity tests (57 should pass)
+#    (pyproject.toml's pythonpath = ["src"] lets pytest find the
+#    package automatically — no PYTHONPATH override needed)
+.venv/bin/pytest tests/test_skeleton.py -v
+
+# 3. Confirm the package itself imports cleanly + shows its docstring.
+#    Python needs `src/` on sys.path (the package is `src/tinyrag/`).
+#    Easiest: cd into src/ first, then call python. The project's
+#    path contains a colon and spaces, so `PYTHONPATH=.` (or any
+#    relative path) gets mangled by the shell — the same root cause
+#    as the llama.cpp build colon-path bug in Step 3.4.
+cd src && ../.venv/bin/python -c "import tinyrag; print(tinyrag.__doc__)"
 ```
 
 ---
