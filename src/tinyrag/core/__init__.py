@@ -26,7 +26,10 @@ Modules
 - :mod:`tinyrag.core.answer` — the dataclass for a final answer +
   citation list (Step 4.14).
 - :mod:`tinyrag.core.sensor_summarizer` — sensor data →
-  text-summary chunks for indexing (Step 4.14).
+  text-summary chunks for indexing (Step 4.14). Provides
+  :class:`~tinyrag.core.sensor_summarizer.SensorSummarizer` and
+  the :class:`~tinyrag.core.sensor_summarizer.SensorSummarizerError`
+  exception hierarchy.
 
 Why no I/O?
 -----------
@@ -69,6 +72,12 @@ from tinyrag.core.retriever import (
     RetrieverSearchError,
     adapt_metadata_store,
 )
+from tinyrag.core.sensor_summarizer import (
+    SensorSummarizer,
+    SensorSummarizerEmptyError,
+    SensorSummarizerError,
+    SensorSummarizerSchemaError,
+)
 
 __all__ = [
     "Chunk",
@@ -91,6 +100,10 @@ __all__ = [
     "RetrieverError",
     "RetrieverMetadataError",
     "RetrieverSearchError",
+    "SensorSummarizer",
+    "SensorSummarizerEmptyError",
+    "SensorSummarizerError",
+    "SensorSummarizerSchemaError",
     "USER_MESSAGE_TEMPLATE",
     "adapt_metadata_store",
     "default_chunker",
