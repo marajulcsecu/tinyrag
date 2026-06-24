@@ -17,10 +17,14 @@ Modules
   dataclass and :class:`~tinyrag.core.chunker.Chunker` class.
 - :mod:`tinyrag.core.retriever` — query → top-k chunks (wraps the
   vector store + metadata store behind a Protocol) (Step 4.12).
+  Provides :class:`~tinyrag.core.retriever.Retriever` and
+  :class:`~tinyrag.core.retriever.RetrievalResult`.
 - :mod:`tinyrag.core.prompt_builder` — context + query → grounded
-  prompt string (Step 4.11).
+  prompt string (Step 4.11). Provides
+  :class:`~tinyrag.core.prompt_builder.PromptBuilder` and
+  :class:`~tinyrag.core.prompt_builder.Prompt`.
 - :mod:`tinyrag.core.answer` — the dataclass for a final answer +
-  citation list (Step 4.11).
+  citation list (Step 4.14).
 - :mod:`tinyrag.core.sensor_summarizer` — sensor data →
   text-summary chunks for indexing (Step 4.14).
 
@@ -51,18 +55,44 @@ from tinyrag.core.prompt_builder import (
     PromptBuilderError,
     default_prompt_builder,
 )
+from tinyrag.core.retriever import (
+    DEFAULT_K_DOC,
+    DEFAULT_K_SENSOR,
+    DEFAULT_SENSOR_KEYWORDS,
+    DEFAULT_THRESHOLD,
+    MetadataAccessor,
+    RetrievalResult,
+    Retriever,
+    RetrieverEmbedError,
+    RetrieverError,
+    RetrieverMetadataError,
+    RetrieverSearchError,
+    adapt_metadata_store,
+)
 
 __all__ = [
     "Chunk",
     "Chunker",
     "ChunkingError",
+    "DEFAULT_K_DOC",
+    "DEFAULT_K_SENSOR",
     "DEFAULT_MAX_PROMPT_TOKENS",
     "DEFAULT_RESERVED_FOR_ANSWER_TOKENS",
+    "DEFAULT_SENSOR_KEYWORDS",
     "DEFAULT_SYSTEM_PROMPT",
+    "DEFAULT_THRESHOLD",
+    "MetadataAccessor",
     "Prompt",
     "PromptBuilder",
     "PromptBuilderError",
+    "RetrievalResult",
+    "Retriever",
+    "RetrieverEmbedError",
+    "RetrieverError",
+    "RetrieverMetadataError",
+    "RetrieverSearchError",
     "USER_MESSAGE_TEMPLATE",
+    "adapt_metadata_store",
     "default_chunker",
     "default_prompt_builder",
 ]
