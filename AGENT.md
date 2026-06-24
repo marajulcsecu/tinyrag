@@ -2,12 +2,12 @@
 
 > **Purpose:** This file is the single source of truth for anyone (human or AI) picking up the TinyRAG project. If you are a new agent, **read this first** before doing anything. It tells you what the project is, what decisions have been made, where things live, and what to do next.
 
-**Last updated:** 2026-06-23 (update 19)
-**Project status:** Step 4.1 complete — project skeleton (9 subpackages) ready for Phase 4 code drops
-**Next milestone:** Step 4.2 — Set up `config.yaml` + `Settings` loader
+**Last updated:** 2026-06-23 (update 20)
+**Project status:** Step 4.2 complete — typed Settings loader + config.yaml live; FR-49..FR-52 satisfied
+**Next milestone:** Step 4.3 — Implement structured logging (structlog)
 **Canonical roadmap:** `docs/06_roadmap_v2.md` (the older `v1` and `laptop_v1` are historical only)
 **Remote:** `https://github.com/marajulcsecu/tinyrag`
-**Tip of `main`:** `a7b29fd` (see §11 Build Journal)
+**Tip of `main`:** `88e7d01` (see §11 Build Journal)
 **Venv location:** `~/venvs/tinyrag` (symlinked as `.venv` in project root)
 **OpenBLAS version:** 0.3.26 (verified via pkg-config)
 **llama.cpp:** tag `gguf-v0.19.0` (commit `a290ce626663dae1d54f70bce3ca6d8f67aab62f`) — built at `/tmp/llamacpp-build/build/` (colon-path workaround; symlinked into `llama.cpp/build/`)
@@ -200,6 +200,7 @@ TinyRAG/
 │   ├── conftest.py               ← shared fixtures (Step 4.1 — empty for now)
 │   ├── test_smoke.py             ← runtime-deps import check (Step 3.2)
 │   ├── test_skeleton.py          ← project-layout integrity (Step 4.1)
+│   ├── test_config.py            ← typed Settings loader (Step 4.2)
 │   ├── test_llm_client.py        ← LLMClient Protocol + concrete (Step 3.7a)
 │   ├── test_download_models.py   ← GGUF downloader (Step 3.5)
 │   ├── test_generate_synthetic_sensors.py ← synthetic data (Step 3.8)
@@ -257,11 +258,12 @@ TinyRAG/
 - ✅ Evaluation methodology complete (gold set + scoring rubric)
 - ✅ **Phase 3 complete (Steps 3.1–3.9)** — repo, env, system deps, llama.cpp, all 4 GGUF models, LLMClient, 30-day synthetic sensor data, and the Phase 3 end-to-end smoke test
 - ✅ **Step 4.1 complete** — 9 subpackages from `docs/03_architecture_v1.md` §5 are now importable Python subpackages, each with a docstring explaining its responsibility
-- ⏳ Next: Step 4.2 — Set up `config.yaml` + `Settings` loader
+- ✅ **Step 4.2 complete** — typed Settings loader + `config.yaml`; FR-49..FR-52 satisfied
+- ⏳ Next: Step 4.3 — Implement structured logging (structlog)
 
-**Immediate next step (Step 4.2 — agent action):**
+**Immediate next step (Step 4.3 — agent action):**
 
-Step 4.2 introduces the *single source of runtime config* — a typed `Settings` object loaded from `config.yaml` at startup. Every later Phase 4 step (LLM model id, embedder model id, FAISS index path, sensor source kind, server port, log level) reads from `Settings` instead of hardcoding values. This is what makes TinyRAG portable across the Pi 5 and the laptop: only `config.yaml` differs.
+Step 4.3 introduces structured logging via `structlog` (already pinned in `requirements.txt`). Every module in Phase 4 will call `get_logger(__name__)` instead of `print()` or `logging.getLogger()`. Logs will be JSON-per-line in production (parseable by log aggregators) and pretty-printed when `logging.json_format: false` in `config.yaml`. The composition root (`src/tinyrag/main.py`, added in Step 4.17) will call `configure_logging(settings.logging)` once at startup.
 
 **Optional parallel student action — none for Step 4.2. You can verify the Phase 3 end-to-end smoke test any time:**
 
@@ -277,6 +279,30 @@ make smoke-e2e E2E_CLIENT=fake
 
 If `make smoke-e2e` (real) returns `[ OK ] Phase 3 smoke test passed.` and a sensible answer to "What is 2+2?", the entire Phase 3 stack — native llama.cpp + downloaded model + LLMClient + structured error handling — works end-to-end.
 
+You can also verify the Step 4.2 config yourself with:
+
+```bash
+# 1. Read the config — sanity-check the values match your environment
+less config.yaml
+
+# 2. Run the config tests (44 should pass)
+.venv/bin/pytest tests/test_config.py -v
+
+# 3. Load the config from a Python REPL and inspect a field.
+#    cd into src/ first to avoid the colon-path bug (see Step 4.1
+#    explanation in the §8 above).
+cd src && ../.venv/bin/python -c "
+from tinyrag.config import load_settings
+s = load_settings('../config.yaml')
+print('llm.model_path =', s.llm.model_path)
+print('deployment.target =', s.deployment.target)
+print('sensors.source =', s.sensors.source)
+print('project_root =', s.project_root())
+"
+```
+
+The first command shows you the file. The second runs the test suite. The third proves the Settings object loads from YAML and exposes the values your code will see.
+
 You can also verify the Step 4.1 skeleton yourself with:
 
 ```bash
@@ -284,16 +310,9 @@ You can also verify the Step 4.1 skeleton yourself with:
 tree src tests -L 3
 
 # 2. Run the skeleton integrity tests (57 should pass)
-#    (pyproject.toml's pythonpath = ["src"] lets pytest find the
-#    package automatically — no PYTHONPATH override needed)
 .venv/bin/pytest tests/test_skeleton.py -v
 
-# 3. Confirm the package itself imports cleanly + shows its docstring.
-#    Python needs `src/` on sys.path (the package is `src/tinyrag/`).
-#    Easiest: cd into src/ first, then call python. The project's
-#    path contains a colon and spaces, so `PYTHONPATH=.` (or any
-#    relative path) gets mangled by the shell — the same root cause
-#    as the llama.cpp build colon-path bug in Step 3.4.
+# 3. Confirm the package itself imports cleanly + shows its docstring
 cd src && ../.venv/bin/python -c "import tinyrag; print(tinyrag.__doc__)"
 ```
 
@@ -343,7 +362,7 @@ This section is the **running log of every step executed**, in execution order. 
 | 3.8 | Generate synthetic sensor data | ✅ Done | `b7680d3` | `feat(sensors): add 30-day synthetic sensor generator (Step 3.8)` | Added `scripts/generate_synthetic_sensors.py` (~480 lines): numpy + pandas, SEED=42 reproducibility, 5-min resolution, 6 sensors (living_room_temp, living_room_hum, bedroom_temp, bedroom_hum, kitchen_motion, house_energy), long-format CSV output to `data/sensor_logs/synthetic_30d.csv` (gitignored). Per-sensor physics: temperature = daily sinusoid + per-room offset + Gaussian noise; humidity = weakly anti-correlated with temp, bounded [30, 80]; motion = Bernoulli with hour-of-day + weekday/weekend rates; energy = base draw + morning/evening peaks + weekend multiplier + 5% appliance surges. CLI: `--start`, `--days`, `--interval-min`, `--out`, `--seed`, `--summary`, `--json`. Generated 51,840 rows × 6 sensors (30 days × 288 ticks/day). Plus `tests/test_generate_synthetic_sensors.py` — **34 hermetic tests** covering: schema conformance (§6.1 columns + dtypes + canonical sensors), no NaN, realistic value ranges (temp 15-30, humidity 30-80, motion 0/1, energy ≥ 0), daily patterns (afternoon temp peak, dinner motion peak), SEED=42 reproducibility (same/different seed → same/different output), summary helper, time-grid correctness (5-min spacing, no duplicates per sensor), custom start date. Full suite: **115/115 tests pass** (was 81, added 34). No new runtime deps — `pandas` + `numpy` were already pinned. |
 | 3.9 | Phase 3 checkpoint: end-to-end smoke test | ✅ Done | `d882691` | `feat(smoke): add Phase 3 end-to-end smoke test (Step 3.9)` | Added `scripts/smoke_test.py` (~370 lines): hard-coded "What is 2+2?" probe sent through `LLMClient` (real llama-server or `FakeLLMClient`), `SmokeResult` dataclass with `to_dict()` for JSON output, `print_human` / `print_json` formatters, CLI with `--client {real,fake}`, `--base-url`, `--model`, `--query`, `--max-tokens`, `--json`, `--quiet`. Exit codes: 0 = success, 1 = empty/error, 2 = argparse. Catches every `LLMError` and converts to a structured failed result (no traceback to stderr). Plus `tests/test_smoke_test.py` — **26 hermetic tests** covering: contract constants (defaults match Makefile), client factories, `run_smoke()` success/empty/whitespace/LLMError paths, `SmokeResult.to_dict()` shape + JSON-safety, full `main()` end-to-end (`--json`/`--quiet`/`--query`/bad-client exit 2/no-server exit 1+structured-error), `print_human`/`print_json` formatting. All hermetic — uses FakeLLMClient or synthetic BrokenClient/SilentClient classes; no network. Plus new `make smoke-e2e` target honoring `E2E_CLIENT=fake` for hermetic CI mode. **Bonus fix in same commit:** Makefile help-regex bug — `[a-zA-Z_-]` didn't match digits, so targets like `smoke-e2e` (digit `2`) were silently dropped from `make help`. Fixed across all 8 `grep -E` occurrences. Verified: `make smoke-e2e E2E_CLIENT=fake` exits 0 with `[ OK ]` banner; `make smoke-e2e` (no llama-server) exits 1 with structured `LLMError: ...Connection refused...` JSON. **Phase 3 is now complete.** Full suite: **141/141 tests pass** (was 115, added 26). Lint clean. |
 | 4.1 | Initialize the project skeleton (folders only) | ✅ Done | `a7b29fd` | `feat(skeleton): initialize project skeleton folders (Step 4.1)` | Created the full `src/tinyrag/` subpackage tree from `docs/03_architecture_v1.md` §5. **9 new subpackages** (api, core, ingestion, storage, sensors, input_adapters, ui, observability + the rewritten top-level `__init__.py`); `tinyrag.generation` and `tinyrag.models` already existed from earlier steps. Every `__init__.py` has a non-empty docstring explaining the subpackage's responsibility, listing the modules it will hold, and pointing at the Phase 4 step numbers that will create them. Each docstring follows the same convention as `tinyrag.generation.__init__` (which already existed): "Why a subpackage?" rationale + "Location: ..." footer. The top-level `__init__.py` was rewritten from empty to a full package docstring that lists every subpackage and explains the one-way dependency rule (api → core → stdlib only). **`tests/conftest.py`** created with a docstring-only stub (no fixtures yet — they'll land in Steps 4.2/4.5 as the test suite grows). **`ui/static/` and `ui/templates/`** created with `.gitkeep` placeholders so git tracks the otherwise-empty dirs; placeholders will be removed when the actual CSS/JS/HTML files land in Steps 4.21-4.23. **`tests/test_skeleton.py`** — **57 hermetic tests** guarding the layout: (1) every subpackage dir exists with non-empty `__init__.py` (parametrised over 10 subpackages × 3 checks = 30), (2) every subpackage is importable (10), (3) UI subdirs exist + have `.gitkeep` (4), (4) `tests/conftest.py` + `tests/test_smoke.py` still present + have key markers (3), (5) **no `__init__.py` may import a runtime dep** (faiss, fastapi, sentence_transformers, torch, structlog, pydantic, yaml, pdfplumber — 10 tests) — this last guard catches a common mistake: a future contributor adding `from .llm_client import LLMClient` to the top-level `__init__.py` would transitively pull in httpx and break the smoke import check on a fresh machine. Full suite: **198/198 tests pass** (was 141, +57). Lint clean (after `ruff check --fix` for 2 trailing-newline warnings). No new runtime deps. Structure verified: `tree src tests -L 3` matches §5 exactly. |
-| 4.2 | Set up `config.yaml` + `Settings` loader | ⏳ Next | — | — | Per docs/06_roadmap_v2.md Phase 4. |
+| 4.2 | Set up `config.yaml` + `Settings` loader | ✅ Done | `88e7d01` | `feat(config): add typed Settings loader and config.yaml (Step 4.2)` | Added `config.yaml` (~150 lines) at project root with the canonical schema from `docs/04_database_design_v1.md` §config (mirroring `docs/02_srs_v1.md` Appendix B). Every field has an inline comment explaining its purpose, default, and laptop-vs-Pi rationale. `deployment.target: laptop` per Step 4.2 instructions. **9 top-level sections** — all required to be present (even if `{}`). Added `src/tinyrag/config.py` (~640 lines): Pydantic v2 Settings with 9 typed sub-models (one per YAML section), all `frozen=True, extra="forbid"`. **4 typed enums** (DeploymentTarget, SensorSource, LogLevel, EmbeddingDevice) with Pydantic-v2 string-to-enum coercion. **Range constraints** on every numeric field (e.g. llm.temperature ∈ [0, 2], server.port ∈ [1, 65535]). **Cross-field validation**: `chunking.chunk_overlap < chunking.chunk_size` (else the chunker loops forever); `deployment.target: laptop` + `sensors.source: real_serial` is rejected (FR-18 [L] — laptop has no GPIO). The laptop-vs-real_serial check is implemented as a two-pass in `load_settings()` (build partial Settings from default-filled broken sections, then run the cross-field check) so the user always sees the cross-field error even when other fields are also broken. **`Settings.resolve(relative_path)`** anchors relative paths to the config file's directory (a `PrivateAttr` set by `load_settings`). **Typed exception hierarchy** `ConfigError` → `ConfigNotFoundError` / `ConfigValidationError`; the latter wraps the original Pydantic `ValidationError` on `self.original`. **Friendly error summary** when validation fails: one `dot.path: message` line per failing field, in the same format mypy/ruff use (cleaner than Pydantic's default). **Why not `pydantic_settings.BaseSettings`?** It's env-first; TinyRAG is single-process and single-config, and mixing env vars + YAML is a recipe for "which one wins?" confusion. Custom loader is ~30 lines, fully testable. Plus `tests/test_config.py` — **44 hermetic tests**: TestPublicSurface (9 — every sub-model instantiates with defaults), TestEnumCoercion (5), TestLoadSettings (6 — happy path + idempotence + frozen + resolve()), TestLoadSettingsErrors (9 — missing file / malformed YAML / missing section / wrong type / out of range / unknown enum / unknown field / invalid top-level type / empty file rejected), TestCrossFieldValidation (6 — laptop+real_serial rejected, pi+real_serial allowed, etc.), TestConfigYamlMatchesSpec (3 — real config.yaml matches SRS Appendix B + database design §config), TestFROrNumbers (4 — explicit FR-49..FR-52 traceability). **All 4 FRs satisfied** and testable. Full suite: **242/242 tests pass** with `PYTHONPATH=.` (was 198, +44). Lint clean. No new runtime deps — `pydantic==2.9.2` and `pyyaml==6.0.2` were already pinned in `requirements.txt`. |
 
 ### 11.2 Phase 4 — Build (laptop)
 
