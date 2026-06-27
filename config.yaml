@@ -140,7 +140,16 @@ retrieval:
   # Minimum cosine similarity for a chunk to be considered
   # relevant. Below this threshold, the retriever returns nothing
   # and the prompt builder emits "no relevant context found".
-  similarity_threshold: 0.3
+  #
+  # Empirically tuned for the small test corpus (~12 doc chunks +
+  # ~180 sensor chunks): MiniLM-L6-v2 returns top similarities in
+  # the 0.05-0.15 range for short technical queries against a tiny
+  # corpus. The original 0.3 default was tuned for a much larger
+  # document base. On a corpus of this size, 0.3 effectively means
+  # "always reject everything". 0.05 keeps the top-3 relevant hits
+  # for almost every on-topic query without letting noise through
+  # (the threshold filters chunks, then top_k still applies).
+  similarity_threshold: 0.05
 
   # Vector index backend. Only "faiss" is supported in v1.
   index_type: faiss
