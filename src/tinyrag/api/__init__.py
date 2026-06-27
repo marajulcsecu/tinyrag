@@ -4,14 +4,24 @@ The :mod:`tinyrag.api` subpackage is the only place that knows the
 project is a web service. Everything in here depends on FastAPI; nothing
 in :mod:`tinyrag.core` or :mod:`tinyrag.generation` knows FastAPI exists.
 
-Modules (to be added in later Phase 4 steps)
---------------------------------------------
-- :mod:`tinyrag.api.routes_query` — ``POST /api/query`` (SSE streaming
-  answer) and ``GET /api/status`` (liveness + model id).
+Modules
+-------
+- :mod:`tinyrag.api.routes_query` — ``POST /api/query`` (full RAG
+  pipeline; SSE streaming lands in Step 4.19) and ``GET /api/status``
+  (liveness + model + index + RAM + llama.cpp status per FR-39).
 - :mod:`tinyrag.api.routes_docs` — ``POST /api/documents`` (upload),
   ``GET /api/documents`` (list), ``DELETE /api/documents/{id}``.
+  Skeleton in Step 4.17 (returns 501); filled in by Step 4.18.
 - :mod:`tinyrag.api.routes_admin` — ``POST /api/admin/reindex`` and
-  ``POST /api/admin/benchmark``.
+  ``POST /api/admin/benchmark``. Skeleton in Step 4.17.
+- :mod:`tinyrag.api.schemas` — Pydantic request / response models.
+- :mod:`tinyrag.api.deps` — FastAPI dependency providers pulling
+  singletons out of ``app.state``.
+- :mod:`tinyrag.api.errors` — global exception handlers mapping
+  domain errors to HTTP status codes + the uniform
+  :class:`ErrorResponse` shape.
+- :mod:`tinyrag.api.system_info` — RAM + llama.cpp reachability
+  probes (used by ``GET /api/status``).
 
 Why a thin layer?
 -----------------
@@ -30,5 +40,28 @@ Location: ``src/tinyrag/api/``
 
 from __future__ import annotations
 
-# Subpackage is currently a placeholder. Modules will be re-exported
-# here as they are implemented in later Phase 4 steps (4.17, 4.18, 4.19).
+from tinyrag.api.errors import install_exception_handlers
+from tinyrag.api.routes_admin import ADMIN_NOT_IMPLEMENTED_DETAIL, build_admin_router
+from tinyrag.api.routes_docs import NOT_IMPLEMENTED_DETAIL, build_docs_router
+from tinyrag.api.routes_query import build_query_router
+from tinyrag.api.schemas import (
+    AskRequest,
+    AskResponse,
+    ErrorResponse,
+    NotImplementedResponse,
+    StatusResponse,
+)
+
+__all__ = [
+    "ADMIN_NOT_IMPLEMENTED_DETAIL",
+    "AskRequest",
+    "AskResponse",
+    "ErrorResponse",
+    "NOT_IMPLEMENTED_DETAIL",
+    "NotImplementedResponse",
+    "StatusResponse",
+    "build_admin_router",
+    "build_docs_router",
+    "build_query_router",
+    "install_exception_handlers",
+]
