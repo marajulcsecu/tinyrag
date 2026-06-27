@@ -67,6 +67,7 @@ Public surface
 - :data:`SCHEMA_VERSION` — the current schema version (int).
 - :data:`SUPPORTED_DOC_TYPES` — the closed set of ``doc_type`` values
   (mirrors the ``CHECK`` constraint in the DDL).
+- :data:`TEXT_PREVIEW_CHARS` — preview length for the UI citation card.
 
 Location: ``src/tinyrag/storage/metadata.py``
 """
@@ -674,6 +675,59 @@ class MetadataStore:
         with self._connect() as conn:
             row = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()
             return int(row[0])
+
+    def list_documents_by_filename(
+        self, filename: str, *, doc_type: str | None = None
+    ) -> list[DocumentRecord]:
+        """Return every ``documents`` row whose ``filename`` matches.
+
+        Used by the sensor ingestion CLI (Step 4.15) to detect
+        re-ingest of the same CSV: if a ``doc_type='sensor_summary'``
+        row already exists with the same ``filename``, the script
+        deletes the old chunks + FAISS vectors before re-ingesting,
+        keeping the system idempotent without violating the
+        ``UNIQUE (document_id, chunk_index)`` constraint on
+        ``chunks``.
+
+        Parameters
+        ----------
+        filename:
+            Exact match on ``documents.filename`` (the basename
+            the CLI passes in — usually the CSV filename).
+        doc_type:
+            Optional filter; when set, only rows with that
+            ``doc_type`` are returned. This is the recommended
+            path for callers that want "the sensor summary for
+            this CSV" (set ``doc_type='sensor_summary'`` so a
+            future ``doc_type='manual'`` row with the same
+            filename won't collide).
+
+        Returns
+        -------
+        list[DocumentRecord]
+            All matching rows, newest-ingested first (same order
+            as :meth:`list_documents`). Empty list if nothing
+            matches — the caller treats that as "no prior ingest".
+        """
+        with self._connect() as conn:
+            if doc_type is None:
+                rows = conn.execute(
+                    "SELECT id, filename, doc_type, source_path, size_bytes, "
+                    "num_chunks, content_hash, ingested_at, last_modified, "
+                    "metadata_json FROM documents WHERE filename = ? "
+                    "ORDER BY ingested_at DESC, rowid DESC",
+                    (filename,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, filename, doc_type, source_path, size_bytes, "
+                    "num_chunks, content_hash, ingested_at, last_modified, "
+                    "metadata_json FROM documents "
+                    "WHERE filename = ? AND doc_type = ? "
+                    "ORDER BY ingested_at DESC, rowid DESC",
+                    (filename, doc_type),
+                ).fetchall()
+        return [_row_to_document(r) for r in rows]
 
     def log_query(
         self,

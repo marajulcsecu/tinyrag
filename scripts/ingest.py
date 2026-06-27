@@ -660,10 +660,12 @@ def _load_settings(config_path: str | None) -> Settings:
         return load_settings()
     # If the user passed an explicit path, construct a fresh loader.
     # (load_settings() reads from the project root's config.yaml; the
-    # override is for tests + power users.)
+    # override is for tests + power users.) ``load_settings`` takes
+    # a positional ``path`` argument — the legacy ``config_path=``
+    # kwarg is no longer recognised.
     from tinyrag.config import load_settings as _ls
 
-    return _ls(config_path=config_path)
+    return _ls(config_path)
 
 
 # ---------------------------------------------------------------------------

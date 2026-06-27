@@ -43,7 +43,7 @@ Location: ``src/tinyrag/sensors/simulated.py``
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -256,6 +256,24 @@ class SimulatedCSVSource:
         # always wins so a user can override the source's default.
         floor = since if since is not None else self.default_since
         if floor is not None:
+            # Align ``floor``'s tz-awareness with the column's
+            # tz-awareness so the comparison succeeds. The CSV
+            # may be loaded as tz-naive (``datetime64[ns]``) or
+            # tz-aware (``datetime64[ns, UTC]``) depending on the
+            # pandas version + the timestamp strings in the file;
+            # comparing a tz-aware ``floor`` against a tz-naive
+            # column (or vice-versa) raises
+            # ``TypeError: Invalid comparison between dtype=...``.
+            # We always localise-naive → localise to UTC when the
+            # column is tz-aware, and localise-aware → strip tz
+            # when the column is tz-naive.
+            col_is_tz_aware = bool(
+                getattr(df["timestamp"].dt, "tz", None) is not None
+            )
+            if col_is_tz_aware and floor.tzinfo is None:
+                floor = floor.replace(tzinfo=UTC)
+            elif (not col_is_tz_aware) and floor.tzinfo is not None:
+                floor = floor.replace(tzinfo=None)
             df = df.loc[df["timestamp"] >= floor].reset_index(drop=True)
 
         return df
