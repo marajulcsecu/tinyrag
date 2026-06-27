@@ -42,7 +42,7 @@ from __future__ import annotations
 
 from tinyrag.api.errors import install_exception_handlers
 from tinyrag.api.routes_admin import ADMIN_NOT_IMPLEMENTED_DETAIL, build_admin_router
-from tinyrag.api.routes_docs import NOT_IMPLEMENTED_DETAIL, build_docs_router
+from tinyrag.api.routes_docs import build_docs_router
 from tinyrag.api.routes_query import build_query_router
 from tinyrag.api.schemas import (
     AskRequest,
@@ -57,7 +57,6 @@ __all__ = [
     "AskRequest",
     "AskResponse",
     "ErrorResponse",
-    "NOT_IMPLEMENTED_DETAIL",
     "NotImplementedResponse",
     "StatusResponse",
     "build_admin_router",

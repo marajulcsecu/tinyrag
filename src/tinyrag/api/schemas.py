@@ -260,9 +260,190 @@ class NotImplementedResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# ----------------------------------------------------------------------------
+# GET /api/documents
+# ----------------------------------------------------------------------------
+
+
+class DocumentListItemResponse(BaseModel):
+    """One row in the :class:`DocumentListResponse.documents` array.
+
+    Mirrors the :class:`tinyrag.storage.metadata.DocumentRecord` row
+    shape exactly — same field names, same nullability — so the
+    dashboard's "documents table" widget can bind one-to-one. The
+    fields are kept flat (no nested objects) so the JSON shape stays
+    trivial to render and to ``grep`` in the structured log.
+
+    ``metadata_json`` is the *raw* JSON text from the metadata store
+    (i.e. the contents of the ``documents.metadata_json`` column);
+    the dashboard parses it client-side if it wants the structured
+    view. We deliberately do NOT pre-parse it server-side — that
+    would couple the wire schema to whatever the per-doc-type
+    metadata shape is today.
+
+    Attributes
+    ----------
+    id:
+        UUID v4 generated at ingest time (the same id stored in
+        ``MetadataStore`` and used as the FAISS int↔UUID key).
+    filename:
+        The basename of the uploaded file (e.g. ``"manual.pdf"``).
+        Sanitised server-side to strip any path traversal prefix
+        (``Path(filename).name``).
+    doc_type:
+        One of ``"manual" | "note" | "spec"`` per the
+        ``Settings.paths.documents_dir`` ingest convention.
+    source_path:
+        The on-disk path the file was read from (the tempfile
+        path for HTTP uploads; the original ``args.path`` for the
+        CLI). Useful provenance even though the temp file is
+        unlinked after the response.
+    size_bytes:
+        File size in bytes as recorded at ingest time.
+    num_chunks:
+        Number of chunks the chunker produced. Matches the
+        ``chunks.document_id = id`` row count.
+    content_hash:
+        SHA-256 hex digest of the file's bytes — the dedup signal
+        at re-ingest (``MetadataStore.get_document_by_hash``).
+    ingested_at, last_modified:
+        ISO-8601 UTC timestamps. ``ingested_at`` is set once at
+        insert; ``last_modified`` is bumped by every
+        :meth:`MetadataStore.update_document_chunk_count` call.
+    metadata_json:
+        Raw JSON text from the ``documents.metadata_json`` column
+        (``None`` when the ingest didn't record any per-document
+        metadata — e.g. PDF page count for a TXT file).
+    """
+
+    id: str
+    filename: str
+    doc_type: str
+    source_path: str
+    size_bytes: int
+    num_chunks: int
+    content_hash: str
+    ingested_at: str
+    last_modified: str
+    metadata_json: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class DocumentListResponse(BaseModel):
+    """Body for ``GET /api/documents``.
+
+    Returns one page of documents plus enough pagination metadata
+    for the dashboard's "next page" button. The contract mirrors the
+    simplest possible cursor-pagination shape:
+
+    - ``documents`` — the page contents (already in the API's
+      newest-first ordering).
+    - ``count`` — the **total** document count, not the page size.
+      The dashboard uses this for the "N documents" header.
+    - ``limit`` / ``offset`` — the values the server actually used
+      (echoes the query params so a buggy client can compare).
+    - ``next_offset`` — the offset to fetch the next page, or
+      ``None`` when there are no more pages. The dashboard renders
+      a disabled "Next" button when this is ``None``.
+
+    Attributes
+    ----------
+    documents:
+        The page contents (newest-ingested first).
+    count:
+        Total number of documents in the corpus. Equal to
+        ``len(documents)`` on a single-page response.
+    limit:
+        Maximum documents per page. The route handler clamps the
+        query param to ``[1, 500]`` and echoes the value here.
+    offset:
+        Page offset — the number of documents skipped before this
+        page starts. ``0`` for the first page.
+    next_offset:
+        ``offset + limit`` when more pages remain; ``None``
+        otherwise. Computed server-side so the client doesn't
+        have to know the total to decide "is there a next page?".
+    """
+
+    documents: list[DocumentListItemResponse]
+    count: int = Field(ge=0, description="Total documents in the corpus.")
+    limit: int = Field(ge=1, description="Page size used.")
+    offset: int = Field(ge=0, description="Page offset used.")
+    next_offset: int | None = Field(
+        default=None,
+        description=(
+            "Offset to fetch the next page; ``None`` when no more "
+            "pages remain."
+        ),
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+# ----------------------------------------------------------------------------
+# DELETE /api/documents/{document_id}
+# ----------------------------------------------------------------------------
+
+
+class DocumentDeleteResponse(BaseModel):
+    """Body for ``DELETE /api/documents/{id}`` (200 happy path).
+
+    Reports exactly what was removed so the dashboard can render a
+    precise "Deleted document X and its 44 chunks / 44 vectors"
+    toast without a follow-up GET. Counts come from the cascade
+    paths the route handler walks:
+
+    - ``chunks_removed`` — the chunk rows that were cascade-deleted
+      by the SQLite ``ON DELETE CASCADE`` FK on
+      ``chunks.document_id``.
+    - ``vectors_removed`` — the FAISS slots that were removed via
+      ``FAISSStore.remove_ids``. May differ from ``chunks_removed``
+      in a TOCTOU race (chunks deleted between the metadata read
+      and the FAISS remove), so we report them separately.
+
+    A 404 response (the document didn't exist) uses the uniform
+    :class:`ErrorResponse` shape instead.
+
+    Attributes
+    ----------
+    document_id:
+        The UUID the route handler received — echoed verbatim so
+        the client can match the response to its own log.
+    chunks_removed:
+        Number of chunk rows the SQLite cascade deleted.
+    vectors_removed:
+        Number of FAISS vectors actually removed. Equal to
+        ``chunks_removed`` in the happy path; can be less in a
+        TOCTOU race (FAISS soft-deletes unknown UUIDs silently).
+    """
+
+    document_id: str
+    chunks_removed: int = Field(ge=0)
+    vectors_removed: int = Field(ge=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+#: Response body for ``POST /api/documents`` — the
+#: :meth:`tinyrag.scripts.ingest.IngestionReport.to_dict` shape
+#: (already JSON-safe). Typed as ``dict[str, Any]`` for the same
+#: reason :data:`AskResponse` is: the shape comes from a CLI
+#: dataclass, not from a Pydantic model, and Step 4.19 will add
+#: upload-only fields (e.g. ``etag``) without changing the JSON
+#: contract. The dashboard reads ``body["ok"]``, ``body["doc_id"]``,
+#: ``body["num_chunks"]``, ``body["error"]`` — the same keys the
+#: ``scripts/ingest.py --json`` output already produces.
+DocumentUploadResponse = dict[str, Any]
+
+
 __all__ = [
     "AskRequest",
     "AskResponse",
+    "DocumentDeleteResponse",
+    "DocumentListItemResponse",
+    "DocumentListResponse",
+    "DocumentUploadResponse",
     "ErrorResponse",
     "NotImplementedResponse",
     "StatusResponse",

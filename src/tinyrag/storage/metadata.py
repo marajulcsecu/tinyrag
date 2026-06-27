@@ -430,6 +430,52 @@ class MetadataStore:
             )
             conn.commit()
 
+    def update_document_provenance(
+        self,
+        document_id: str,
+        *,
+        filename: str | None = None,
+        source_path: str | None = None,
+    ) -> None:
+        """Set the user-facing ``filename`` + ``source_path`` + bump ``last_modified``.
+
+        Step 4.18's HTTP upload pipeline writes the upload bytes to
+        a tempfile, then calls :func:`scripts.ingest.run_ingest`,
+        which records ``filename = path.name`` (the tempfile's
+        randomised name) and ``source_path = str(path)``. We don't
+        want the dashboard to display ``tmp6uw572ef.txt`` — we want
+        the user-supplied basename. This method lets the route
+        handler overwrite those two fields after the ingest
+        succeeds, while leaving everything else (content_hash,
+        size_bytes, doc_type, num_chunks, chunks) untouched.
+
+        A no-op (silently) if the document id doesn't exist; the
+        caller can use :meth:`get_document` first if it needs to
+        detect that. At least one of ``filename`` / ``source_path``
+        must be provided.
+        """
+        if filename is None and source_path is None:
+            raise ValueError(
+                "update_document_provenance requires filename and/or source_path"
+            )
+        sets: list[str] = []
+        params: list[str] = []
+        if filename is not None:
+            sets.append("filename = ?")
+            params.append(filename)
+        if source_path is not None:
+            sets.append("source_path = ?")
+            params.append(source_path)
+        sets.append("last_modified = ?")
+        params.append(_now_iso())
+        params.append(document_id)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE documents SET {', '.join(sets)} WHERE id = ?",
+                params,
+            )
+            conn.commit()
+
     def insert_chunks(self, chunks: Sequence[dict[str, Any]]) -> list[str]:
         """Insert a batch of chunks in a single transaction.
 
@@ -565,27 +611,62 @@ class MetadataStore:
             return None
         return _row_to_document(row)
 
-    def list_documents(self) -> list[DocumentRecord]:
-        """Return every document, newest-ingested first.
+    def list_documents(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[DocumentRecord]:
+        """Return every document, newest-ingested first, paginated.
 
         Used by the UI manage-page (Step 4.22) and by the "what's
         in the corpus?" admin command in ``scripts/inspect_db.py``
-        (Step 4.16).
+        (Step 4.16), plus the ``GET /api/documents`` endpoint
+        (Step 4.18).
 
+        Parameters
+        ----------
+        limit:
+            Maximum number of rows to return. ``None`` (the default)
+            returns every row — this preserves the pre-Step-4.18
+            behaviour so existing callers don't change. Pass an
+            ``int`` for the dashboard's paginated list.
+        offset:
+            Number of rows to skip before returning results. Always
+            applied (even when ``limit=None``); the SQL becomes
+            ``... LIMIT -1 OFFSET offset`` which SQLite treats as
+            "no upper bound, skip the first ``offset`` rows".
+
+        Ordering & ties
+        ---------------
+        Ordered ``ingested_at DESC, rowid DESC`` (newest first).
         Ties on ``ingested_at`` (multiple rows inserted in the same
         wall-clock second — common in tests + bulk imports) are
         broken by the SQLite-internal ``rowid``, which is a
         monotonic 64-bit integer assigned at insert time. That
         gives a stable, deterministic order even when the
-        ISO-8601 timestamps are identical.
+        ISO-8601 timestamps are identical — important for paginated
+        cursors so the next page doesn't overlap the previous one.
         """
+        sql = (
+            "SELECT id, filename, doc_type, source_path, size_bytes, "
+            "num_chunks, content_hash, ingested_at, last_modified, "
+            "metadata_json FROM documents "
+            "ORDER BY ingested_at DESC, rowid DESC"
+        )
+        params: tuple[int, ...] = ()
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params = (int(limit), int(offset))
+        elif offset:
+            # No explicit limit but an offset was provided — emit
+            # LIMIT -1 (SQLite's "no upper bound" sentinel) so the
+            # OFFSET is applied. Keeps the behaviour predictable
+            # for callers that pass offset without limit.
+            sql += " LIMIT -1 OFFSET ?"
+            params = (int(offset),)
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT id, filename, doc_type, source_path, size_bytes, "
-                "num_chunks, content_hash, ingested_at, last_modified, "
-                "metadata_json FROM documents "
-                "ORDER BY ingested_at DESC, rowid DESC"
-            ).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         return [_row_to_document(r) for r in rows]
 
     def get_chunks_by_ids(self, chunk_ids: Sequence[str]) -> list[ChunkRecord]:

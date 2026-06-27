@@ -692,6 +692,32 @@ class TestListDocuments:
         docs = store.list_documents()
         assert all(isinstance(d, DocumentRecord) for d in docs)
 
+    # --------------------------------------------------------------
+    # Step 4.18 — pagination extension
+    # --------------------------------------------------------------
+
+    def test_limit_caps_results(self, store: MetadataStore) -> None:
+        """``limit`` bounds the number of rows returned (newest first)."""
+        ids = [_make_doc(store, content_hash=f"h{i}") for i in range(5)]
+        docs = store.list_documents(limit=2)
+        # Newest-first: ids[4], ids[3].
+        assert [d.id for d in docs] == [ids[4], ids[3]]
+
+    def test_offset_skips_rows(self, store: MetadataStore) -> None:
+        """``offset`` skips the first N rows in newest-first order."""
+        ids = [_make_doc(store, content_hash=f"h{i}") for i in range(5)]
+        docs = store.list_documents(limit=2, offset=2)
+        # Newest-first: skip ids[4], ids[3] → return ids[2], ids[1].
+        assert [d.id for d in docs] == [ids[2], ids[1]]
+
+    def test_default_behaviour_unchanged(self, store: MetadataStore) -> None:
+        """Calling without kwargs returns all rows (back-compat pin)."""
+        [_make_doc(store, content_hash=f"h{i}") for i in range(4)]
+        # No kwargs → all 4 rows, newest first.
+        assert len(store.list_documents()) == 4
+        # Explicit limit=None matches the default behaviour.
+        assert len(store.list_documents(limit=None, offset=0)) == 4
+
 
 class TestGetChunksByIds:
     """``get_chunks_by_ids`` preserves input order, skips unknowns."""

@@ -95,9 +95,12 @@ from tinyrag.api.errors import (  # noqa: E402
     install_exception_handlers as _reinstall_handlers,
 )
 from tinyrag.api.routes_admin import ADMIN_NOT_IMPLEMENTED_DETAIL  # noqa: E402
-from tinyrag.api.routes_docs import NOT_IMPLEMENTED_DETAIL  # noqa: E402
-from tinyrag.api.schemas import (  # noqa: E402
+from tinyrag.api.schemas import (  # noqa: E402, F401  (Document* used by name only)
     AskRequest as AskRequestSchema,
+    DocumentDeleteResponse,
+    DocumentListItemResponse,
+    DocumentListResponse,
+    DocumentUploadResponse,
     ErrorResponse as ErrorResponseSchema,
     StatusResponse as StatusResponseSchema,
 )
@@ -150,6 +153,53 @@ REQUIRED_ANSWER_KEYS: frozenset[str] = frozenset(
         "duration_total_ms",
     }
 )
+
+REQUIRED_DOC_LIST_ITEM_KEYS: frozenset[str] = frozenset(
+    {
+        "id",
+        "filename",
+        "doc_type",
+        "source_path",
+        "size_bytes",
+        "num_chunks",
+        "content_hash",
+        "ingested_at",
+        "last_modified",
+    }
+)
+
+REQUIRED_UPLOAD_KEYS: frozenset[str] = frozenset(
+    {
+        "ok",
+        "doc_id",
+        "num_chunks",
+        "duration_total_ms",
+        "embedding_model",
+        "doc_type",
+        "file",
+        "error",
+    }
+)
+
+#: Path to the small real PDF fixture (used by the upload happy-path tests).
+_NEST_PDF = (
+    Path(__file__).resolve().parent / "fixtures" / "Nest-Thermostat-Installation-Guide-UK.pdf"
+)
+
+
+def _small_txt() -> bytes:
+    """Return a few-KB TXT body (enough for ≥1 chunk)."""
+    return ("Hello world. " * 200).encode("utf-8")
+
+
+def _small_md() -> bytes:
+    """Return a few-KB Markdown body."""
+    return b"# Heading\n\nSome **markdown** body.\n\n" + (b"Paragraph. " * 50)
+
+
+def _oversize_bytes() -> bytes:
+    """Return a 51 MB blob — one byte over the upload cap."""
+    return b"x" * (51 * 1024 * 1024)
 
 
 # ---------------------------------------------------------------------------
@@ -718,23 +768,7 @@ class TestPostQueryValidation:
 
 
 class TestNotImplementedEndpoints:
-    """/api/documents and /api/admin/* return 501 with the documented body."""
-
-    def test_post_documents_returns_501(self, client: Any) -> None:
-        r = client.post("/api/documents", files={"file": ("x.pdf", b"%PDF")})
-        assert r.status_code == 501
-        assert r.json()["error"] == "not_implemented"
-        assert NOT_IMPLEMENTED_DETAIL in r.json()["detail"]
-
-    def test_get_documents_returns_501(self, client: Any) -> None:
-        r = client.get("/api/documents")
-        assert r.status_code == 501
-        assert r.json()["error"] == "not_implemented"
-
-    def test_delete_document_returns_501(self, client: Any) -> None:
-        r = client.delete("/api/documents/some-uuid")
-        assert r.status_code == 501
-        assert r.json()["error"] == "not_implemented"
+    """/api/admin/* returns 501 with the documented body (Step 4.17 stub)."""
 
     def test_admin_reindex_returns_501(self, client: Any) -> None:
         r = client.post("/api/admin/reindex")
@@ -746,6 +780,417 @@ class TestNotImplementedEndpoints:
         r = client.post("/api/admin/benchmark")
         assert r.status_code == 501
         assert r.json()["error"] == "not_implemented"
+
+
+# ===========================================================================
+# Step 4.18 — Document management endpoints
+# ===========================================================================
+
+
+class TestDocsRouterExports:
+    """The router factory + validation constants are importable + correct."""
+
+    def test_build_docs_router_callable(self) -> None:
+        from tinyrag.api.routes_docs import build_docs_router as fn
+        assert callable(fn)
+
+    def test_allowed_extensions_match_spec(self) -> None:
+        from tinyrag.api.routes_docs import ALLOWED_EXTENSIONS
+        assert frozenset({".pdf", ".txt", ".md"}) == ALLOWED_EXTENSIONS
+
+    def test_max_upload_bytes_is_50_mib(self) -> None:
+        from tinyrag.api.routes_docs import MAX_UPLOAD_BYTES
+        assert MAX_UPLOAD_BYTES == 50 * 1024 * 1024
+
+    def test_supported_doc_types_match_spec(self) -> None:
+        from tinyrag.api.routes_docs import SUPPORTED_DOC_TYPES
+        # The router's whitelist is sourced from the canonical
+        # metadata store whitelist so they never disagree.
+        from tinyrag.storage.metadata import SUPPORTED_DOC_TYPES as META_TYPES
+        assert SUPPORTED_DOC_TYPES == META_TYPES
+        assert "manual" in SUPPORTED_DOC_TYPES
+
+    def test_default_doc_type_is_manual(self) -> None:
+        from tinyrag.api.routes_docs import DEFAULT_DOC_TYPE
+        assert DEFAULT_DOC_TYPE == "manual"
+
+    def test_safe_filename_strips_path_traversal(self) -> None:
+        from tinyrag.api.routes_docs import _safe_filename
+        assert _safe_filename("../../../etc/passwd") == "passwd"
+        assert _safe_filename("..\\..\\windows\\system32\\cmd.exe") == "cmd.exe"
+        assert _safe_filename("manual.pdf") == "manual.pdf"
+        assert _safe_filename("") == ""
+        assert _safe_filename(".") == ""
+        assert _safe_filename("..") == ""
+        assert _safe_filename(".bashrc") == ""
+        # Windows reserved device names.
+        assert _safe_filename("CON.pdf") == ""
+        assert _safe_filename("nul.txt") == ""
+
+
+class TestPostDocuments:
+    """``POST /api/documents`` — upload + ingest pipeline (Step 4.18)."""
+
+    def test_upload_txt_returns_200_with_report_shape(
+        self, empty_client: Any
+    ) -> None:
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("hello.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        for key in REQUIRED_UPLOAD_KEYS:
+            assert key in body, f"missing key {key!r} in {body}"
+        assert body["ok"] is True
+        assert body["doc_id"], "doc_id should be a non-empty UUID"
+        assert body["num_chunks"] >= 1
+        assert body["doc_type"] == "manual"
+        assert body["error"] is None
+
+    def test_upload_md_returns_200(self, empty_client: Any) -> None:
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("notes.md", _small_md(), "text/markdown")},
+            data={"doc_type": "faq"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        assert body["doc_type"] == "faq"
+        assert body["num_chunks"] >= 1
+
+    def test_upload_pdf_returns_200(self, empty_client: Any) -> None:
+        # Real Nest PDF — verifies the parser dispatch for .pdf works
+        # via the HTTP path (not just the CLI).
+        pdf_bytes = _NEST_PDF.read_bytes()
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("manual.pdf", pdf_bytes, "application/pdf")},
+            data={"doc_type": "manual"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        # The Nest PDF is rich → many chunks; just assert > 0.
+        assert body["num_chunks"] > 0
+
+    def test_upload_creates_doc_and_chunks_in_db(
+        self, empty_client: Any, tmp_path: Path
+    ) -> None:
+        # Pre-state: 0 docs / 0 chunks.
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("hello.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is True
+
+        # Verify SQLite has exactly 1 doc + num_chunks chunks.
+        from tinyrag.storage.metadata import MetadataStore
+
+        db = MetadataStore(str(tmp_path / "metadata.db"))
+        assert db.count_documents() == 1
+        assert db.count_chunks() == body["num_chunks"]
+
+    def test_upload_picks_up_vectors_in_doc_store(
+        self, empty_client: Any
+    ) -> None:
+        # Capture the doc_store before…
+        before = empty_client.app.state.doc_store.size()
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("hello.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        body = r.json()
+        # …and confirm it grew by num_chunks (the reload-after-upload works).
+        after = empty_client.app.state.doc_store.size()
+        assert after - before == body["num_chunks"]
+
+    def test_upload_then_list_shows_it(self, empty_client: Any) -> None:
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("hello.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        doc_id = r.json()["doc_id"]
+
+        # Now GET — the doc should appear.
+        r2 = empty_client.get("/api/documents")
+        assert r2.status_code == 200
+        body = r2.json()
+        assert body["count"] == 1
+        assert len(body["documents"]) == 1
+        assert body["documents"][0]["id"] == doc_id
+        assert body["documents"][0]["filename"] == "hello.txt"
+
+    def test_upload_rejects_unsupported_extension(self, empty_client: Any) -> None:
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("data.csv", b"a,b,c\n1,2,3", "text/csv")},
+            data={"doc_type": "manual"},
+        )
+        assert r.status_code == 400
+        body = r.json()
+        assert body["error"] == "unsupported_file_type"
+        assert ".csv" in body["detail"]
+
+    def test_upload_rejects_missing_file_part(self, empty_client: Any) -> None:
+        # Missing the ``file`` form field → Pydantic 422.
+        r = empty_client.post(
+            "/api/documents", data={"doc_type": "manual"}
+        )
+        assert r.status_code == 422
+        body = r.json()
+        assert body["error"] == "validation_error"
+
+    def test_upload_rejects_oversize_file(self, empty_client: Any) -> None:
+        # 51 MB → 413 file_too_large.
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("big.txt", _oversize_bytes(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        assert r.status_code == 413, r.text
+        body = r.json()
+        assert body["error"] == "file_too_large"
+        assert "50" in body["detail"]  # the cap in MB
+
+    def test_upload_rejects_invalid_doc_type(self, empty_client: Any) -> None:
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("hello.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "bogus_type"},
+        )
+        assert r.status_code == 400
+        body = r.json()
+        assert body["error"] == "invalid_doc_type"
+        assert "bogus_type" in body["detail"]
+
+    def test_upload_sanitises_filename_traversal(self, empty_client: Any) -> None:
+        # Path-traversal in filename → server stores only the basename
+        # (or rejects; the route sanitises via _safe_filename which
+        # always returns a plain basename). After upload, list shows
+        # the sanitised name.
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("../../../etc/passwd.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        # The upload itself succeeds (the body is valid).
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        # The listed document's filename is just the basename.
+        r2 = empty_client.get("/api/documents")
+        items = r2.json()["documents"]
+        assert len(items) == 1
+        assert items[0]["filename"] == "passwd.txt"
+
+    def test_upload_default_doc_type_is_manual(self, empty_client: Any) -> None:
+        # No doc_type form value → defaults to "manual".
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("hello.txt", _small_txt(), "text/plain")},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["doc_type"] == "manual"
+
+
+class TestGetDocuments:
+    """``GET /api/documents`` — paginated list (Step 4.18)."""
+
+    def test_get_documents_empty_returns_count_zero(
+        self, empty_client: Any
+    ) -> None:
+        r = empty_client.get("/api/documents")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["count"] == 0
+        assert body["documents"] == []
+        assert body["limit"] == 50  # default
+        assert body["offset"] == 0
+        assert body["next_offset"] is None
+
+    def test_get_documents_lists_after_upload(self, empty_client: Any) -> None:
+        for _ in range(2):
+            empty_client.post(
+                "/api/documents",
+                files={"file": ("hello.txt", _small_txt(), "text/plain")},
+                data={"doc_type": "manual"},
+            )
+        r = empty_client.get("/api/documents")
+        body = r.json()
+        assert body["count"] == 2
+        assert len(body["documents"]) == 2
+
+    def test_get_documents_returns_required_keys_per_item(
+        self, empty_client: Any
+    ) -> None:
+        empty_client.post(
+            "/api/documents",
+            files={"file": ("hello.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        r = empty_client.get("/api/documents")
+        for item in r.json()["documents"]:
+            assert REQUIRED_DOC_LIST_ITEM_KEYS.issubset(item.keys())
+
+    def test_get_documents_newest_first(self, empty_client: Any) -> None:
+        # Upload A then B → GET returns B before A.
+        rA = empty_client.post(
+            "/api/documents",
+            files={"file": ("a.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        rB = empty_client.post(
+            "/api/documents",
+            files={"file": ("b.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        ids = [rA.json()["doc_id"], rB.json()["doc_id"]]
+        r = empty_client.get("/api/documents")
+        items = r.json()["documents"]
+        assert [it["id"] for it in items] == [ids[1], ids[0]]
+
+    def test_get_documents_pagination_limit(self, empty_client: Any) -> None:
+        for _ in range(3):
+            empty_client.post(
+                "/api/documents",
+                files={"file": ("hello.txt", _small_txt(), "text/plain")},
+                data={"doc_type": "manual"},
+            )
+        r = empty_client.get("/api/documents?limit=2")
+        body = r.json()
+        assert body["count"] == 3
+        assert len(body["documents"]) == 2
+        assert body["limit"] == 2
+        assert body["next_offset"] == 2
+
+    def test_get_documents_pagination_offset(self, empty_client: Any) -> None:
+        for _ in range(3):
+            empty_client.post(
+                "/api/documents",
+                files={"file": ("hello.txt", _small_txt(), "text/plain")},
+                data={"doc_type": "manual"},
+            )
+        r = empty_client.get("/api/documents?limit=2&offset=2")
+        body = r.json()
+        assert body["count"] == 3
+        assert len(body["documents"]) == 1
+        assert body["offset"] == 2
+        assert body["next_offset"] is None  # no more pages
+
+    def test_get_documents_validation_rejects_bad_limit(
+        self, empty_client: Any
+    ) -> None:
+        # limit=0 → 422; limit=501 → 422 (Pydantic via FastAPI Query bounds).
+        assert empty_client.get("/api/documents?limit=0").status_code == 422
+        assert empty_client.get("/api/documents?limit=501").status_code == 422
+        # offset=-1 → 422.
+        assert empty_client.get("/api/documents?offset=-1").status_code == 422
+
+
+class TestDeleteDocument:
+    """``DELETE /api/documents/{id}`` — cascade-delete (Step 4.18)."""
+
+    def test_delete_removes_document_and_vectors(
+        self, empty_client: Any, tmp_path: Path
+    ) -> None:
+        # Upload, then delete, then verify.
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("hello.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        doc_id = r.json()["doc_id"]
+        num_chunks = r.json()["num_chunks"]
+
+        r2 = empty_client.delete(f"/api/documents/{doc_id}")
+        assert r2.status_code == 200, r2.text
+        body = r2.json()
+        assert body["document_id"] == doc_id
+        assert body["chunks_removed"] == num_chunks
+        assert body["vectors_removed"] == num_chunks
+
+        # GET now excludes it; FAISS is also empty.
+        r3 = empty_client.get("/api/documents")
+        assert r3.json()["count"] == 0
+        assert empty_client.app.state.doc_store.size() == 0
+
+        # SQLite chunk count is 0 too.
+        from tinyrag.storage.metadata import MetadataStore
+
+        db = MetadataStore(str(tmp_path / "metadata.db"))
+        assert db.count_chunks() == 0
+        assert db.count_documents() == 0
+
+    def test_delete_unknown_id_returns_404(self, empty_client: Any) -> None:
+        r = empty_client.delete("/api/documents/00000000-0000-0000-0000-000000000000")
+        assert r.status_code == 404
+        body = r.json()
+        assert body["error"] == "document_not_found"
+        assert "00000000-0000-0000-0000-000000000000" in body["detail"]
+
+    def test_delete_twice_returns_404_second_time(self, empty_client: Any) -> None:
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("hello.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        doc_id = r.json()["doc_id"]
+
+        first = empty_client.delete(f"/api/documents/{doc_id}")
+        assert first.status_code == 200
+        second = empty_client.delete(f"/api/documents/{doc_id}")
+        assert second.status_code == 404
+
+    def test_delete_preserves_other_documents(self, empty_client: Any) -> None:
+        # Upload 2 docs, delete the first; the second survives.
+        rA = empty_client.post(
+            "/api/documents",
+            files={"file": ("a.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        rB = empty_client.post(
+            "/api/documents",
+            files={"file": ("b.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        empty_client.delete(f"/api/documents/{rA.json()['doc_id']}")
+
+        r = empty_client.get("/api/documents")
+        ids = [d["id"] for d in r.json()["documents"]]
+        assert ids == [rB.json()["doc_id"]]
+
+    def test_delete_persists_across_reload(
+        self, empty_client: Any, tmp_path: Path
+    ) -> None:
+        # Upload, delete, then re-load the FAISS store from disk — the
+        # deletion must still be reflected (verifies the sidecar save).
+        r = empty_client.post(
+            "/api/documents",
+            files={"file": ("hello.txt", _small_txt(), "text/plain")},
+            data={"doc_type": "manual"},
+        )
+        doc_id = r.json()["doc_id"]
+        empty_client.delete(f"/api/documents/{doc_id}")
+
+        # Force a reload from disk; the size should still be 0.
+        from tinyrag.storage.vector_store import FAISSStore
+
+        store = FAISSStore(
+            index_path=Path(empty_client.app.state.settings.retrieval.doc_index_path),
+            embedding_dimension=384,
+            embedding_model="fake:sentence-transformers/all-MiniLM-L6-v2",
+        )
+        store.load()
+        assert store.size() == 0
 
 
 class TestErrorHandlers:
