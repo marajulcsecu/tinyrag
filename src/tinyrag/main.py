@@ -371,6 +371,51 @@ def create_app(
             },
         )
 
+    @app.get("/admin", tags=["meta"], summary="Document management UI (Jinja2).")
+    async def admin(request: Request):
+        """Render the admin / documents page.
+
+        Mirrors the Step 4.21 ``GET /`` pattern: Jinja2 render of
+        ``ui/templates/admin.html`` with a context dict that carries
+        the validation constants from :mod:`tinyrag.api.routes_docs`
+        so the upload form's <select> stays in sync with the server
+        (single source of truth — the route handler is the seam).
+
+        Falls back to a JSON banner (matching GET /) if the templates
+        dir is missing so the API surface stays reachable on broken
+        installs.
+        """
+        if templates is None:
+            return {
+                "service": "tinyrag",
+                "version": "0.4.0",
+                "api_docs": "/docs",
+                "ui_error": f"templates dir missing: {templates_dir}",
+            }
+        # Import here (not at module load time) so a circular-dep or
+        # missing-route_docs never blocks main.py from importing.
+        # All four are module-level constants — cheap to read.
+        from tinyrag.api.routes_docs import (
+            ALLOWED_EXTENSIONS,
+            DEFAULT_DOC_TYPE,
+            MAX_UPLOAD_BYTES,
+            SUPPORTED_DOC_TYPES,
+        )
+
+        return templates.TemplateResponse(
+            request=request,
+            name="admin.html",
+            context={
+                "service": "tinyrag",
+                "version": "0.4.0",
+                "api_docs": "/docs",
+                "allowed_extensions": sorted(ALLOWED_EXTENSIONS),
+                "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
+                "supported_doc_types": sorted(SUPPORTED_DOC_TYPES),
+                "default_doc_type": DEFAULT_DOC_TYPE,
+            },
+        )
+
     return app
 
 

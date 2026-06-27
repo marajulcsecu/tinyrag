@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TinyRAG — Admin</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="topbar">
+        <h1 class="brand">TinyRAG <span class="brand-suffix">— Admin</span></h1>
+        <div class="status">
+            <span id="status-pill" class="pill pill-loading" title="Subsystem health from /api/status">checking…</span>
+            <span id="model-name" class="model-name" title="Active LLM"></span>
+            <a class="navlink" href="/">← Chat</a>
+            <a class="navlink" href="/docs" target="_blank" rel="noopener">API docs</a>
+        </div>
+    </header>
+
+    <main class="chat" aria-live="polite">
+        <section class="panel" aria-labelledby="upload-heading">
+            <h2 id="upload-heading">Upload document</h2>
+            <form id="upload-form" class="upload-form" autocomplete="off">
+                <label class="visually-hidden" for="file-input">Choose file</label>
+                <input id="file-input" name="file" type="file"
+                       accept=".pdf,.txt,.md" required>
+                <label class="visually-hidden" for="doc-type">Document type</label>
+                <select id="doc-type" name="doc_type" aria-label="Document type">
+                    {% for dt in supported_doc_types %}
+                    <option value="{{ dt }}"{% if dt == default_doc_type %} selected{% endif %}>{{ dt }}</option>
+                    {% endfor %}
+                </select>
+                <button id="upload-button" type="submit" class="send-button">Upload + ingest</button>
+                <p class="help-text">Allowed: {{ allowed_extensions | join(', ') }} · Max size: {{ max_upload_mb }} MB</p>
+            </form>
+        </section>
+
+        <section class="panel" aria-labelledby="docs-heading">
+            <div class="panel-header">
+                <h2 id="docs-heading">Documents <span id="docs-count">(0)</span></h2>
+                <button id="refresh-button" type="button" class="btn-secondary">Refresh</button>
+            </div>
+            <div id="docs-table-container">
+                <p class="empty-state" id="empty-state">No documents yet. Upload one above.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <small>
+            Document management — POST <code>/api/documents</code> · GET <code>/api/documents</code> · DELETE <code>/api/documents/{id}</code>
+        </small>
+    </footer>
+
+    <div id="toast" class="toast toast-hidden" role="status" aria-live="polite"></div>
+
+    <script src="/static/admin.js" defer></script>
+</body>
+</html>

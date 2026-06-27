@@ -235,6 +235,21 @@ class TestGetRoot:
         body = client.get("/").text
         assert 'aria-live="polite"' in body
 
+    def test_root_links_to_admin(self, client: TestClient) -> None:
+        # Step 4.22 — the chat page now exposes an Admin navlink in
+        # the topbar so users can navigate to /admin without typing
+        # the URL. Regression pin for ui/templates/index.html.
+        body = client.get("/").text
+        assert 'href="/admin"' in body
+        assert "Admin" in body
+
+    def test_root_has_navlink_class(self, client: TestClient) -> None:
+        # The Admin navlink uses .navlink (defined in style.css by
+        # Step 4.22). Verifying the class is in the body proves the
+        # CSS hook is wired — not just an unhref'd <a>.
+        body = client.get("/").text
+        assert "navlink" in body
+
 
 # ===========================================================================
 # Class 3 — /static/* (chat.js + style.css)

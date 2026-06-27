@@ -354,4 +354,194 @@ textarea#query:disabled {
     .composer { padding: 10px 14px; flex-direction: column; }
     .send-button { padding: 12px; }
     .brand { font-size: 18px; }
+    .docs-table .col-time,
+    .docs-table .col-chunks,
+    .docs-table .col-size { display: none; }
+    .docs-table .col-filename { word-break: break-all; }
 }
+
+/* ---- Admin page (Step 4.22) ----
+ * Classes reused by ui/templates/admin.html + ui/static/admin.js.
+ * Kept additive — every rule here is namespaced (no conflict with
+ * the chat-page rules above).
+ */
+.brand-suffix {
+    font-weight: 400;
+    font-size: 16px;
+    color: var(--fg-mute);
+    margin-left: 6px;
+}
+
+.navlink {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 13px;
+    margin-left: 14px;
+}
+.navlink:hover { text-decoration: underline; }
+
+.panel {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 22px;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow);
+}
+
+.panel h2 {
+    margin: 0 0 12px;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.upload-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.upload-form input[type="file"] {
+    flex: 1;
+    min-width: 200px;
+    padding: 8px;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 13px;
+}
+
+.upload-form select {
+    padding: 8px 12px;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 13px;
+}
+
+.upload-form input[type="file"]:disabled,
+.upload-form select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.help-text {
+    width: 100%;
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--fg-mute);
+}
+
+.docs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.docs-table th,
+.docs-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.docs-table th {
+    font-weight: 600;
+    color: var(--fg-mute);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.docs-table tbody tr:hover {
+    background: var(--source-bg);
+}
+
+.docs-table .col-size,
+.docs-table .col-chunks,
+.docs-table .col-time {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.docs-table .col-filename {
+    word-break: break-all;
+}
+
+.docs-table .col-type {
+    font-size: 12px;
+    color: var(--fg-mute);
+}
+
+.delete-button {
+    padding: 4px 12px;
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.delete-button:hover:not(:disabled) {
+    border-color: #e76e6e;
+    color: #e76e6e;
+}
+
+.delete-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-secondary {
+    padding: 6px 14px;
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+.btn-secondary:hover { border-color: var(--accent); }
+
+.empty-state {
+    color: var(--fg-mute);
+    font-style: italic;
+    padding: 16px;
+    text-align: center;
+    margin: 0;
+}
+
+.toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    max-width: 420px;
+    padding: 12px 18px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    z-index: 100;
+    font-size: 13px;
+    line-height: 1.4;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.toast-hidden { display: none; }
+.toast-success { background: #1a4d2e; color: #6ee79e; border: 1px solid #2a6d3e; }
+.toast-error   { background: #4d1a1a; color: #ffb8b8; border: 1px solid #6e2828; }
+.toast-info    { background: var(--bg-soft); color: var(--fg); border: 1px solid var(--border); }
