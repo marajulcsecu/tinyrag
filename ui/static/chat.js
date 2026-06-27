@@ -85,7 +85,12 @@
             //   ready   -> "ready" (green)
             //   degraded-> "degraded" (red)
             //   loading -> "checking..." (grey) — only on first paint
-            const ready = !!data.ready;
+            //
+            // The /api/status response field is `ok` (boolean), not
+            // `ready` — see StatusResponse in src/tinyrag/api/schemas.py.
+            // Step 4.23 fixed a latent bug where we were reading
+            // data.ready (undefined → pill stuck on "degraded").
+            const ready = !!data.ok;
             setStatusPill(
                 ready ? "ready" : "degraded",
                 ready ? "ready" : "degraded",

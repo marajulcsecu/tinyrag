@@ -18,6 +18,56 @@
     </header>
 
     <main class="chat" aria-live="polite">
+        <section id="status-panel" class="panel status-panel" aria-labelledby="status-heading">
+            <div class="panel-header">
+                <h2 id="status-heading">System status</h2>
+                <button id="status-toggle" type="button" class="btn-secondary"
+                        aria-expanded="true" aria-controls="status-body">Hide</button>
+            </div>
+            <div id="status-body" class="status-grid">
+                <div class="status-cell">
+                    <span class="status-label">Model</span>
+                    <span id="status-model" class="status-value">—</span>
+                </div>
+                <div class="status-cell">
+                    <span class="status-label">Embeddings</span>
+                    <span id="status-embedding" class="status-value">—</span>
+                </div>
+                <div class="status-cell">
+                    <span class="status-label">Vector dims</span>
+                    <span id="status-dim" class="status-value">—</span>
+                </div>
+                <div class="status-cell">
+                    <span class="status-label">Doc chunks</span>
+                    <span id="status-doc-count" class="status-value">—</span>
+                </div>
+                <div class="status-cell">
+                    <span class="status-label">Sensor chunks</span>
+                    <span id="status-sensor-count" class="status-value">—</span>
+                </div>
+                <div class="status-cell">
+                    <span class="status-label">LLM server</span>
+                    <span id="status-llm" class="status-value">—</span>
+                </div>
+                <div class="status-cell">
+                    <span class="status-label">Sensor source</span>
+                    <span id="status-sensor-source" class="status-value">—</span>
+                </div>
+                <div class="status-cell">
+                    <span class="status-label">RAM</span>
+                    <span id="status-ram" class="status-value">—</span>
+                </div>
+                <div class="status-cell">
+                    <span class="status-label">Deployment</span>
+                    <span id="status-deploy" class="status-value">—</span>
+                </div>
+                <div class="status-cell">
+                    <span class="status-label">Last update</span>
+                    <span id="status-updated" class="status-value">—</span>
+                </div>
+            </div>
+        </section>
+
         <section class="panel" aria-labelledby="upload-heading">
             <h2 id="upload-heading">Upload document</h2>
             <form id="upload-form" class="upload-form" autocomplete="off">
@@ -55,5 +105,6 @@
     <div id="toast" class="toast toast-hidden" role="status" aria-live="polite"></div>
 
     <script src="/static/admin.js" defer></script>
+    <script src="/static/status.js" defer></script>
 </body>
 </html>

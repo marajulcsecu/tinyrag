@@ -411,6 +411,34 @@ class TestChatJS:
         js = self._chat_js_text()
         assert "setInterval" in js
 
+    def test_chat_js_reads_ok_not_ready(self) -> None:
+        # Step 4.23 regression pin: the topbar pill must read
+        # ``data.ok`` from /api/status (the actual StatusResponse
+        # field name) — not the legacy ``data.ready`` field, which
+        # is undefined and would leave the pill stuck on
+        # "degraded" forever.
+        #
+        # We check the specific boolean-coercion assignment
+        # ``!!data.ready`` (not the bare substring) so a future
+        # comment mentioning the bug fix doesn't trip the test.
+        js = self._chat_js_text()
+        assert "data.ok" in js, (
+            "chat.js must read data.ok from /api/status for the pill"
+        )
+        assert "!!data.ready" not in js, (
+            "chat.js still coerces !!data.ready — topbar pill will "
+            "always show 'degraded' (regression of the Step-4.23 bug fix)"
+        )
+
+    def test_chat_js_pill_uses_ok_field(self) -> None:
+        # The pill renderer must be wired up to use the ``ok``
+        # boolean (not the (undefined) ``ready`` field). We check
+        # the specific ternary that flips the pill class.
+        js = self._chat_js_text()
+        # The fix is the ``!!data.ok`` assignment that drives
+        # setStatusPill("ready"|"degraded", ...). Assert it exists.
+        assert "!!data.ok" in js
+
 
 # ===========================================================================
 # Class 5 — style.css structural integrity

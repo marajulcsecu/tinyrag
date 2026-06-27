@@ -545,3 +545,80 @@ textarea#query:disabled {
 .toast-success { background: #1a4d2e; color: #6ee79e; border: 1px solid #2a6d3e; }
 .toast-error   { background: #4d1a1a; color: #ffb8b8; border: 1px solid #6e2828; }
 .toast-info    { background: var(--bg-soft); color: var(--fg); border: 1px solid var(--border); }
+
+/* ---- Status panel (Step 4.23) ----
+ *
+ * The status panel lives at the top of <main class="chat"> on both
+ * the chat page and the admin page. It's a CSS grid of small label +
+ * value cells. The grid auto-collapses to fewer columns on narrow
+ * viewports via repeat(auto-fit, minmax(180px, 1fr)) — no @media
+ * query required.
+ *
+ * Overall health is reflected on the panel's left border via the
+ * [data-ok] attribute selector — the same green/red colour scheme
+ * as the topbar pill so the user sees the same signal twice
+ * (topbar for the quick glance, panel for the detailed view).
+ *
+ * Collapse behaviour is via the .is-collapsed class on the panel
+ * itself (not on a child) — toggling just hides .status-grid while
+ * keeping the panel header visible so the user can re-expand it
+ * without scrolling. The button text + aria-expanded state are
+ * driven from status.js's togglePanel().
+ */
+.status-panel {
+    margin-bottom: 18px;
+    padding-left: 14px; /* room for the 3 px left-border + breathing space */
+    border-left-width: 3px;
+    border-left-style: solid;
+}
+
+.status-panel[data-ok="true"]  { border-left-color: #6ee79e; }
+.status-panel[data-ok="false"] { border-left-color: #e76e6e; }
+/* Pre-first-poll: no data-ok yet — use a neutral border. */
+.status-panel:not([data-ok])  { border-left-color: var(--border); }
+
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px 16px;
+}
+
+.status-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.status-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--fg-mute);
+}
+
+.status-value {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    color: var(--fg);
+    /* Long embedding-model strings + ram_mb values can overflow;
+       break-all keeps them inside the cell instead of stretching
+       the grid. */
+    word-break: break-all;
+}
+
+/* LLM health colours — mirror the toast-success / toast-error palette
+ * so the user gets the same green/red mental model everywhere. */
+.status-llm-up      { color: #6ee79e; }
+.status-llm-down    { color: #e76e6e; }
+.status-llm-unknown { color: var(--fg-mute); }
+
+/* Collapse: hide the grid but keep the header (heading + toggle)
+ * visible so the user can re-expand without scrolling. The panel
+ * border stays so the health colour cue is still visible at a glance. */
+.status-panel.is-collapsed { padding-bottom: 8px; }
+.status-panel.is-collapsed .status-grid { display: none; }
