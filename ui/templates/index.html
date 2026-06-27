@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TinyRAG — Chat</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="topbar">
+        <h1 class="brand">TinyRAG</h1>
+        <div class="status">
+            <span id="status-pill" class="pill pill-loading" title="Subsystem health from /api/status">checking…</span>
+            <span id="model-name" class="model-name" title="Active LLM"></span>
+        </div>
+    </header>
+
+    <main class="chat" aria-live="polite">
+        <div id="messages" class="messages">
+            {# Welcome message — rendered server-side so the page is
+               useful before chat.js loads. chat.js may replace this
+               on first /api/status poll. #}
+            <div class="message message-assistant">
+                <div class="bubble">
+                    <p>Hi! Ask a question about your documents or sensor data.
+                    Answers stream in token-by-token from the local LLM.</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <form id="composer" class="composer" autocomplete="off">
+        <label for="query" class="visually-hidden">Your question</label>
+        <textarea
+            id="query"
+            name="query"
+            rows="2"
+            placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"
+            required
+            minlength="1"
+        ></textarea>
+        <button id="send" type="submit" class="send-button">Send</button>
+    </form>
+
+    <footer class="footer">
+        <small>
+            <a href="/docs" target="_blank" rel="noopener">API docs</a>
+            ·
+            <a href="/api/status" target="_blank" rel="noopener">status</a>
+            ·
+            streaming via <code>POST /api/query?stream=true</code>
+        </small>
+    </footer>
+
+    <script src="/static/chat.js" defer></script>
+</body>
+</html>

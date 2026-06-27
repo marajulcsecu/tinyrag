@@ -59,15 +59,37 @@ import create_app``) but the canonical entry point is
 ``config.yaml`` once at import time — see the bottom of this
 file.
 
+Web UI (Step 4.21)
+------------------
+``create_app`` also wires the **chat web UI**:
+
+- ``GET /`` renders ``ui/templates/index.html`` (Jinja2) — the
+  full chat page with topbar, message history, composer form,
+  and footer.
+- ``app.mount("/static", StaticFiles(directory=ui/static))``
+  serves ``ui/static/chat.js`` and ``ui/static/style.css``
+  directly to the browser.
+
+Both the templates dir and the static dir are resolved relative
+to ``config.yaml``'s ``project_root`` (via
+``settings.project_root()``) so a packaged install + a clone
+checked out at ``/srv/tinyrag`` both find ``ui/`` correctly.
+Falls back to ``<repo>/ui`` if the project root can't be
+determined.
+
 Location: ``src/tinyrag/main.py``
 """
 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.requests import Request
 
 from tinyrag.api.errors import install_exception_handlers
 from tinyrag.api.routes_admin import build_admin_router
@@ -289,13 +311,65 @@ def create_app(
     async def healthz() -> dict[str, str]:
         return {"ok": "true"}
 
-    @app.get("/", tags=["meta"], summary="Service banner.")
-    async def root() -> dict[str, str]:
-        return {
-            "service": "tinyrag",
-            "version": "0.4.0",
-            "api_docs": "/docs",
-        }
+    # ---- Web UI (Step 4.21) ------------------------------------------
+    #
+    # The chat page is a Jinja2 template rendered at GET /. Static
+    # assets (chat.js, style.css) are mounted at /static and fetched
+    # directly by the browser — FastAPI's StaticFiles handles the
+    # mime types + caching headers for us.
+    #
+    # Both paths resolve relative to ``settings.project_root()``.
+    # If the project root can't be computed (e.g. a test built a
+    # Settings without a config.yaml ancestor), fall back to
+    # ``<this file>/../../../ui`` which works for the common
+    # checkout layout (``src/tinyrag/main.py`` -> 3 dirs up is the
+    # repo root).
+    try:
+        ui_root = Path(settings.project_root()) / "ui"
+    except RuntimeError:
+        ui_root = Path(__file__).resolve().parent.parent.parent / "ui"
+
+    templates_dir = ui_root / "templates"
+    static_dir = ui_root / "static"
+
+    # ``StaticFiles`` raises on missing dir; if ui/ is absent (e.g.
+    # partial install) we still want the API to be reachable — log
+    # a warning + skip the mount. Tests that don't need the UI can
+    # pass a Settings with a project root that has no ui/ subtree.
+    if static_dir.is_dir():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    else:
+        _log.warning("ui_static_dir_missing", path=str(static_dir))
+
+    templates = Jinja2Templates(directory=str(templates_dir)) \
+        if templates_dir.is_dir() else None
+
+    @app.get("/", tags=["meta"], summary="Chat web UI (Jinja2).")
+    async def root(request: Request):
+        """Render the chat page.
+
+        Pre-4.21 this returned a tiny JSON banner. Step 4.21 turns
+        it into the chat UI entry point so the user just opens
+        ``http://127.0.0.1:8000/`` and sees the composer. If the
+        template dir is missing (broken install), fall back to the
+        JSON banner so the API surface stays reachable.
+        """
+        if templates is None:
+            return {
+                "service": "tinyrag",
+                "version": "0.4.0",
+                "api_docs": "/docs",
+                "ui_error": f"templates dir missing: {templates_dir}",
+            }
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={
+                "service": "tinyrag",
+                "version": "0.4.0",
+                "api_docs": "/docs",
+            },
+        )
 
     return app
 

@@ -28,7 +28,7 @@ Test layout
   ``/api/admin/*`` return 501 with the documented body shape.
 - TestErrorHandlers            — domain exceptions map to the right
   HTTP status codes via the global handlers.
-- TestRootAndHealthz           — the meta endpoints work.
+- TestRootAndHealthz           — the meta endpoints work. ``GET /`` now renders the Step-4.21 Jinja2 chat UI (HTML); the structural assertions live in ``tests/test_web_ui.py``.
 - TestCreateAppTwiceIdempotent — calling ``create_app`` twice in the
   same process produces two independent apps (no shared state).
 
@@ -1551,19 +1551,29 @@ class TestErrorHandlers:
 
 
 class TestRootAndHealthz:
-    """The meta endpoints return the documented shapes."""
+    """The meta endpoints return the documented shapes.
+
+    Step 4.21 replaced the pre-existing JSON ``GET /`` banner with
+    the Jinja2 chat UI — see :class:`tests.test_web_ui.TestGetRoot`
+    for the full HTML structure. The two meta endpoints that
+    remain JSON-shaped are ``/healthz`` (Kubernetes liveness
+    probe) and ``/api/status`` (subsystem health).
+    """
 
     def test_healthz_returns_ok(self, client: Any) -> None:
         r = client.get("/healthz")
         assert r.status_code == 200
         assert r.json() == {"ok": "true"}
 
-    def test_root_returns_banner(self, client: Any) -> None:
+    def test_root_returns_chat_html(self, client: Any) -> None:
+        # Step 4.21 — GET / now renders the Jinja2 chat page
+        # instead of the old JSON banner. We only assert on the
+        # contract the rest of the suite depends on: 200 OK +
+        # text/html content-type. The HTML structure is verified
+        # in tests/test_web_ui.py.
         r = client.get("/")
         assert r.status_code == 200
-        body = r.json()
-        assert body["service"] == "tinyrag"
-        assert body["api_docs"] == "/docs"
+        assert r.headers["content-type"].startswith("text/html")
 
 
 class TestCreateAppTwiceIdempotent:
