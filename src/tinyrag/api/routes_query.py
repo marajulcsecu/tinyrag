@@ -5,13 +5,31 @@ This module is one half of the public HTTP surface
 
 - ``GET /api/status`` — liveness + per-subsystem health (FR-39).
 - ``POST /api/query`` — run the full RAG pipeline against a question
-  and return the :class:`tinyrag.core.answer.Answer` JSON.
+  and return the :class:`tinyrag.core.answer.Answer` JSON. Step 4.19
+  adds ``?stream=true`` to switch the response from a single JSON
+  blob to an SSE stream of ``data: {"event":"token","delta":"..."}``
+  frames followed by a final ``{"event":"done","answer":{...}}``
+  frame.
 
-Step 4.17 implements both. Step 4.19 will add SSE streaming on top
-of ``POST /api/query`` (the response body becomes ``data: {...}
-\\n\\n`` events rather than one final JSON object); the route
-function stays almost identical — we just swap the return type
-from ``JSONResponse`` to :class:`sse_starlette.EventSourceResponse`.
+Step 4.19 SSE contract
+----------------------
+The streaming path emits (UTF-8, ``text/event-stream``):
+
+::
+
+    data: {"event": "token", "delta": "The"}\n\n
+    data: {"event": "token", "delta": " thermostat"}\n\n
+    ...
+    data: {"event": "done", "answer": {"query": "...", "text": "...", ...}}\n\n
+
+Mid-stream errors (LLM refused / disconnected after the first byte)
+become a single ``{"event": "error", "error": "llm_failed", "detail": "..."}``
+frame followed by a clean close — the dashboard reads ``event="error"``
+and renders the toast. Pre-stream errors (retrieval, prompt build)
+are still returned as the uniform ``ErrorResponse`` JSON body with
+the documented HTTP status code — they fire BEFORE the SSE
+``EventSourceResponse`` is constructed, so the client gets a clean
+non-2xx response rather than a half-open stream.
 
 Why both endpoints in one module?
 ---------------------------------
@@ -36,11 +54,14 @@ Location: ``src/tinyrag/api/routes_query.py``
 
 from __future__ import annotations
 
+import json
 import time
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import JSONResponse
+from sse_starlette.sse import EventSourceResponse
 
 from tinyrag.api.deps import (
     get_embedder,
@@ -181,7 +202,14 @@ def build_query_router() -> APIRouter:
         response_model=AskResponse,
         summary="Ask a question; return the full Answer JSON.",
         responses={
-            200: {"description": "Answer JSON (see tinyrag.core.answer.Answer.to_dict)."},
+            200: {
+                "description": (
+                    "Non-streaming: Answer JSON (see "
+                    "tinyrag.core.answer.Answer.to_dict). "
+                    "Streaming (?stream=true): text/event-stream of "
+                    "token events + a final done event."
+                ),
+            },
             400: {"model": ErrorResponse, "description": "Bad request (empty query, etc.)."},
             422: {"model": ErrorResponse, "description": "Validation error."},
             500: {"model": ErrorResponse, "description": "Pipeline error."},
@@ -192,14 +220,24 @@ def build_query_router() -> APIRouter:
     async def post_query(
         body: AskRequest,
         request: Request,
+        stream: bool = Query(
+            False,
+            description=(
+                "If true, respond with Server-Sent Events: one "
+                "data: {event:'token',delta:'...'} per LLM token "
+                "followed by a final data: {event:'done',answer:{...}} "
+                "frame. Default false (single JSON blob) for "
+                "backward compatibility."
+            ),
+        ),
         settings: Settings = Depends(get_settings),
         embedder: EmbeddingModel = Depends(get_embedder),
         retriever: Retriever = Depends(get_retriever),
         prompt_builder: PromptBuilder = Depends(get_prompt_builder),
         llm: LLMClient = Depends(get_llm),
         metadata: MetadataStore = Depends(get_metadata),
-    ) -> JSONResponse:
-        """Run the RAG pipeline and return the :class:`Answer` JSON.
+    ):
+        """Run the RAG pipeline and return either JSON or an SSE stream.
 
         Mirrors ``scripts.ask.run_ask`` one-for-one so the HTTP
         surface and the CLI surface produce the same shape. The
@@ -213,6 +251,12 @@ def build_query_router() -> APIRouter:
         ``model_name=""`` — same shape the CLI uses — and still
         appends a ``query_log`` row when ``log_query=True`` so
         the eval set can later grade the no-answer case.
+
+        Step 4.19 added the ``stream`` query param. When ``true``,
+        the route returns an ``EventSourceResponse`` (SSE); when
+        ``false`` (default), it returns the same JSON blob it
+        always did — preserving backward compatibility with every
+        existing curl / dashboard client.
         """
         timings: dict[str, float] = {}
         t_total_start = time.monotonic()
@@ -247,13 +291,33 @@ def build_query_router() -> APIRouter:
         prompt = prompt_builder.build(body.query, retrieval.chunks)
         timings["prompt_ms"] = (time.monotonic() - t) * 1000.0
 
-        # ---- Stage 3: llm ------------------------------------------
-        t = time.monotonic()
-        # The LLMClient Protocol returns ``(text, GenerationStats)`` —
-        # the streaming detail is encapsulated in the client. Step
-        # 4.19 will replace this with a streaming variant that
-        # yields SSE events; the route contract stays the same.
         prompt_tokens = prompt.prompt_tokens
+
+        # ---- Stage 3: llm — branches on stream flag ---------------
+        if stream:
+            # Return an SSE stream. Stages 1 + 2 already produced
+            # retrieval + prompt without touching the LLM, so any
+            # error there was already converted to a JSON 5xx
+            # above. The streaming path's only failure mode is a
+            # mid-stream LLM disconnect, handled inside
+            # ``_stream_answer``.
+            return EventSourceResponse(
+                _stream_answer(
+                    body=body,
+                    settings=settings,
+                    llm=llm,
+                    metadata=metadata,
+                    retrieval=retrieval,
+                    prompt=prompt,
+                    prompt_tokens=prompt_tokens,
+                    timings=timings,
+                    t_total_start=t_total_start,
+                ),
+                media_type="text/event-stream",
+            )
+
+        # Non-streaming path — unchanged from Step 4.17.
+        t = time.monotonic()
         completion_tokens = 0
         full_text = ""
         try:
@@ -398,3 +462,170 @@ def _safe_model_name(llm: LLMClient) -> str:
 
 
 __all__ = ["build_query_router"]
+
+
+# ----------------------------------------------------------------------------
+# Step 4.19 — SSE streaming helpers
+# ----------------------------------------------------------------------------
+# Everything below is private to this module (leading underscore) — the
+# router factory returns the only public symbol. The helpers exist so the
+# route handler above stays a short, declarative summary of "retrieve,
+# prompt, stream" rather than a 200-line blob.
+
+
+def _stream_answer(
+    *,
+    body: AskRequest,
+    settings: Settings,
+    llm: LLMClient,
+    metadata: MetadataStore,
+    retrieval: Any,
+    prompt: Any,
+    prompt_tokens: int,
+    timings: dict[str, float],
+    t_total_start: float,
+) -> Iterator[dict[str, Any]]:
+    """Yield SSE event payloads for the streaming ``/api/query`` path.
+
+    Wire format (encoded by ``sse-starlette`` — each yielded dict
+    becomes one ``ServerSentEvent``):
+
+    - ``{"event": "token", "data": "<JSON of {'delta': '<tok>'}>"}``
+      — one per LLM token.
+    - ``{"event": "done", "data": "<JSON of {'answer': {...}}>"}`` —
+      final frame, carries citations + timings + token counts so
+      the dashboard doesn't need a follow-up GET.
+    - ``{"event": "error", "data": "<JSON of {'error': 'llm_failed',
+      'detail': '...'}>"}`` — single error frame if the LLM fails
+      mid-stream; the generator ``return``s immediately after so
+      ``EventSourceResponse`` closes the connection cleanly.
+
+    Why are the JSON payloads stringified into ``data``?
+    -----------------------------------------------------
+    ``sse-starlette`` calls ``ServerSentEvent(**yielded_dict)`` (see
+    ``sse_starlette/sse.py:142``). ``ServerSentEvent`` only accepts
+    the keys ``data | event | id | retry | comment | sep`` — any
+    other key (like a top-level ``delta``) raises ``TypeError``.
+    The accepted pattern is: put the event name in ``event`` and
+    the JSON-serialised payload in ``data``. The client parses
+    ``data`` as JSON to recover the structured fields.
+
+    Why a sync generator (not ``async def`` + ``yield``)?
+    ----------------------------------------------------
+    ``sse-starlette`` accepts sync iterators and runs them in a
+    threadpool via ``anyio.to_thread.run_sync`` (see
+    ``sse_starlette/sse.py:190-193``). The underlying httpx stream
+    in :class:`LlamaCppClient` is sync, so a sync generator avoids
+    a needless async wrapper that would block on the synchronous
+    ``iter_lines()`` call anyway.
+    """
+
+    def _frame(event_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Build a ``ServerSentEvent``-compatible dict.
+
+        ``data`` must be a string (sse-starlette writes it verbatim
+        after ``data: ``). We JSON-encode the payload so the wire
+        format stays one frame per line — multi-line ``data:``
+        frames are technically allowed by the spec but split the
+        client's parsing.
+        """
+        return {"event": event_name, "data": json.dumps(payload)}
+
+    # Collect each token into a list so the final ``Answer.text``
+    # matches what the non-streaming path produces (single
+    # space-separated string, no buffering extras).
+    full_text_parts: list[str] = []
+    completion_tokens = 0
+
+    t_llm_start = time.monotonic()
+    try:
+        for token in llm.stream_generate(
+            prompt.messages,
+            max_tokens=body.max_tokens,
+            temperature=settings.llm.temperature,
+        ):
+            full_text_parts.append(token)
+            yield _frame("token", {"delta": token})
+    except Exception as exc:
+        # LLM failure mid-stream → a single error frame + close.
+        # The dashboard reads ``event="error"`` and renders the
+        # toast; nothing else useful can be sent (the stream is
+        # poisoned).
+        _log.error(
+            "llm_failed_streaming",
+            query=body.query[:80],
+            error=str(exc),
+            exc_info=True,
+        )
+        yield _frame(
+            "error",
+            {"error": "llm_failed", "detail": f"LLM call failed: {exc}"},
+        )
+        return
+
+    timings["llm_ms"] = (time.monotonic() - t_llm_start) * 1000.0
+    full_text = " ".join(full_text_parts)
+    completion_tokens = len(full_text.split())
+
+    # ---- Log query (best-effort; mirrors the non-streaming path) ----
+    used_sensor = retrieval.used_sensor_idx
+    top_score = retrieval.top_score
+    if body.log_query:
+        t = time.monotonic()
+        try:
+            metadata.log_query(
+                query=body.query,
+                top1_score=top_score,
+                num_chunks=len(retrieval),
+                retrieval_ms=int(round(timings.get("retrieve_ms", 0.0))),
+                generation_ms=int(round(timings.get("llm_ms", 0.0))),
+                total_ms=int(round((time.monotonic() - t_total_start) * 1000.0)),
+                model=_safe_model_name(llm),
+                used_sensor_idx=1 if used_sensor else 0,
+            )
+        except Exception as exc:
+            _log.warning(
+                "log_query_failed_streaming",
+                query=body.query[:80],
+                error=str(exc),
+            )
+        timings["log_ms"] = (time.monotonic() - t) * 1000.0
+
+    total_ms = (time.monotonic() - t_total_start) * 1000.0
+
+    # ---- Build the final Answer + yield the done event --------------
+    from tinyrag.core.answer import Answer, build_citations_from_chunks
+
+    surviving_chunks = list(retrieval.chunks)
+    surviving_scores = list(retrieval.scores)
+
+    answer = Answer(
+        query=body.query,
+        text=full_text,
+        used_sensor_idx=used_sensor,
+        top_score=top_score,
+        model_name=_safe_model_name(llm),
+        citations=build_citations_from_chunks(
+            surviving_chunks, surviving_scores
+        ),
+        chunks_used=len(surviving_chunks),
+        chunks_dropped=prompt.chunks_dropped,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=prompt_tokens + completion_tokens,
+        duration_retrieve_ms=timings.get("retrieve_ms", 0.0),
+        duration_prompt_ms=timings.get("prompt_ms", 0.0),
+        duration_llm_ms=timings.get("llm_ms", 0.0),
+        duration_total_ms=total_ms,
+    )
+
+    _log.info(
+        "query_completed_streaming",
+        query=body.query[:80],
+        chunks_used=answer.chunks_used,
+        top_score=answer.top_score,
+        used_sensor=used_sensor,
+        total_ms=round(total_ms, 2),
+    )
+
+    yield _frame("done", {"answer": answer.to_dict()})

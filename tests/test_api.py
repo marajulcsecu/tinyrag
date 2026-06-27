@@ -192,6 +192,55 @@ def _small_txt() -> bytes:
     return ("Hello world. " * 200).encode("utf-8")
 
 
+# ---------------------------------------------------------------------------
+# SSE helpers (Step 4.19)
+# ---------------------------------------------------------------------------
+import json as _json  # noqa: E402  (intentionally below the src-path bootstrap)
+
+
+def _parse_sse_events(body: str) -> list[dict[str, Any]]:
+    """Parse a raw SSE response body into a list of event dicts.
+
+    Each yielded ``ServerSentEvent`` from sse-starlette is framed on
+    the wire as ``event: <name>\\r\\ndata: <json string>\\r\\n\\r\\n``
+    (RFC 8895 specifies CRLF; sse-starlette uses CRLF inside each
+    frame and a CRLF-CRLF separator between frames). This helper
+    normalises line endings, splits on the blank-line separator,
+    then parses the ``event:`` / ``data:`` lines within each block
+    and returns a list of dicts with the shape::
+
+        {"event": "token", "payload": {"delta": "..."}}
+        {"event": "done",  "payload": {"answer": {...}}}
+        {"event": "error", "payload": {"error": "...", "detail": "..."}}
+
+    ``payload`` is the JSON-decoded contents of the ``data:`` line —
+    the sse-starlette wire format puts the JSON payload in ``data``
+    because ``ServerSentEvent`` only accepts the keys
+    ``data | event | id | retry | comment | sep``. The dashboard
+    reads ``event`` to dispatch and ``payload`` for the body.
+    """
+    # Normalise CRLF → LF so the split below is line-ending-agnostic.
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+    events: list[dict[str, Any]] = []
+    for block in body.split("\n\n"):
+        block = block.strip()
+        if not block:
+            continue
+        event_name: str | None = None
+        data_payload: str | None = None
+        for line in block.splitlines():
+            line = line.strip()
+            if line.startswith("event: "):
+                event_name = line[len("event: "):]
+            elif line.startswith("data: "):
+                data_payload = line[len("data: "):]
+        if event_name is None and data_payload is None:
+            continue
+        payload: Any = _json.loads(data_payload) if data_payload else None
+        events.append({"event": event_name, "payload": payload})
+    return events
+
+
 def _small_md() -> bytes:
     """Return a few-KB Markdown body."""
     return b"# Heading\n\nSome **markdown** body.\n\n" + (b"Paragraph. " * 50)
@@ -1191,6 +1240,233 @@ class TestDeleteDocument:
         )
         store.load()
         assert store.size() == 0
+
+
+# ===========================================================================
+# Step 4.19 — SSE streaming for /api/query
+# ===========================================================================
+
+
+@pytest.fixture(autouse=True)
+def _reset_sse_starlette_exit_event() -> Any:
+    """Reset sse-starlette's module-level ``should_exit_event`` per test.
+
+    ``sse_starlette.sse.AppStatus.should_exit_event`` is a cached
+    ``anyio.Event`` bound to the first event loop that touches it.
+    Under ``TestClient`` each test gets a fresh event loop, so
+    reusing a stale Event raises ``RuntimeError: ... is bound to a
+    different event loop``. Clearing the cache between tests lets
+    every test create its own Event on its own loop.
+
+    See: https://github.com/sysid/sse-starlette/issues/63
+    """
+    from sse_starlette.sse import AppStatus
+
+    AppStatus.should_exit_event = None
+    AppStatus.should_exit = False
+    yield
+    AppStatus.should_exit_event = None
+    AppStatus.should_exit = False
+
+
+class TestQueryStreaming:
+    """``POST /api/query?stream=true`` emits SSE events (Step 4.19).
+
+    The streaming path uses sse-starlette's ``EventSourceResponse``
+    which, when consumed via ``httpx`` (the TestClient backend),
+    frames each yield as a ``data: <json>\\n\\n`` block. The
+    ``_parse_sse_events`` helper splits the body on the blank-line
+    terminator and JSON-decodes each frame so the test can assert on
+    a list of dicts.
+
+    The non-streaming path (``POST /api/query`` without
+    ``?stream=true``) is exercised by the existing
+    ``TestPostQueryHappyPath`` tests — they continue to pass because
+    the default of the new ``stream`` query param is ``False``.
+    """
+
+    def test_stream_true_emits_token_events_then_done(
+        self, client: Any
+    ) -> None:
+        """``?stream=true`` yields one ``token`` event per word + a final ``done``."""
+        with client.stream(
+            "POST",
+            "/api/query?stream=true",
+            json={"query": "what about the thermostat?", "max_tokens": 16},
+        ) as r:
+            assert r.status_code == 200
+            # sse-starlette sets ``text/event-stream`` for SSE responses.
+            assert r.headers["content-type"].startswith("text/event-stream")
+            body = r.read().decode("utf-8")
+
+        events = _parse_sse_events(body)
+        assert events, "no SSE events yielded"
+        # Every event except the last must be a ``token`` event.
+        token_events = [e for e in events if e["event"] == "token"]
+        done_events = [e for e in events if e["event"] == "done"]
+        assert len(token_events) >= 1, "at least one token event expected"
+        assert len(done_events) == 1, f"expected exactly one done event, got {len(done_events)}"
+
+        # Token events carry ``delta`` strings in ``payload``; done
+        # carries the full Answer in ``payload["answer"]``.
+        for ev in token_events:
+            assert isinstance(ev["payload"], dict)
+            assert "delta" in ev["payload"]
+            assert isinstance(ev["payload"]["delta"], str)
+            assert ev["payload"]["delta"], "delta must be non-empty"
+
+        done_payload = done_events[0]["payload"]["answer"]
+        assert REQUIRED_ANSWER_KEYS.issubset(set(done_payload.keys()))
+        assert done_payload["query"] == "what about the thermostat?"
+        # Concatenating all the token deltas (with single-space join,
+        # matching how ``_stream_answer`` builds the full_text) should
+        # match the done event's ``text``.
+        joined = " ".join(e["payload"]["delta"] for e in token_events)
+        assert done_payload["text"] == joined
+        assert done_payload["model_name"], "model_name must be non-empty"
+        assert done_payload["duration_total_ms"] >= 0
+
+    def test_stream_false_returns_json_blob_not_sse(self, client: Any) -> None:
+        """No ``?stream=true`` → still the existing single JSON blob.
+
+        Regression pin — Step 4.19 must NOT change the default behaviour
+        of the route (any existing curl user / dashboard client must
+        keep working unchanged).
+        """
+        r = client.post(
+            "/api/query", json={"query": "anything"}
+        )
+        assert r.status_code == 200
+        # application/json (or close — Starlette may add a charset).
+        assert "application/json" in r.headers["content-type"]
+        body = r.json()
+        # The non-streaming contract: one Answer-shaped dict, NOT a list of events.
+        assert REQUIRED_ANSWER_KEYS.issubset(set(body.keys()))
+        assert "event" not in body, "JSON blob must not carry an SSE event field"
+
+    def test_stream_query_log_row_written(
+        self, client: Any, tiny_settings: Any
+    ) -> None:
+        """``?stream=true`` still appends a ``query_log`` row."""
+        from tinyrag.storage.metadata import MetadataStore
+
+        store = MetadataStore(tiny_settings.paths.metadata_db)
+        before = len(store.get_recent_queries(limit=100))
+
+        with client.stream(
+            "POST",
+            "/api/query?stream=true",
+            json={"query": "log me streaming please"},
+        ) as r:
+            assert r.status_code == 200
+            # Drain the body so sse-starlette can close the response.
+            r.read()
+
+        after = MetadataStore(tiny_settings.paths.metadata_db).get_recent_queries(
+            limit=100
+        )
+        assert len(after) == before + 1
+        assert after[0].query == "log me streaming please"
+        # Per-stage timings are stored as integers in the schema.
+        assert after[0].total_ms >= 0
+
+    def test_stream_mid_stream_llm_error_yields_error_event(
+        self, tiny_settings: Any
+    ) -> None:
+        """LLM fails mid-stream → ``{"event":"error","error":"llm_failed"}`` frame.
+
+        We override the get_llm dependency with a FakeLLMClient that
+        raises after 2 tokens so we can observe the partial token
+        burst + the error envelope + the clean close.
+        """
+        from tinyrag.api import deps as api_deps
+        from tinyrag.generation.llm_client import FakeLLMClient
+
+        app = create_app(tiny_settings, llm_kind="fake", embedder_kind="fake")
+        # Pre-fail the LLM so the fake raises after 2 tokens.
+        boom_llm = FakeLLMClient(
+            default_response="alpha beta gamma delta epsilon zeta",
+            raise_after_tokens=2,
+        )
+        app.dependency_overrides[api_deps.get_llm] = lambda: boom_llm  # type: ignore[dict-item]
+
+        with TestClient(app) as c, c.stream(
+            "POST",
+            "/api/query?stream=true",
+            json={"query": "anything goes"},
+        ) as r:
+            assert r.status_code == 200
+            assert r.headers["content-type"].startswith("text/event-stream")
+            body = r.read().decode("utf-8")
+
+        events = _parse_sse_events(body)
+        token_events = [e for e in events if e["event"] == "token"]
+        error_events = [e for e in events if e["event"] == "error"]
+        done_events = [e for e in events if e["event"] == "done"]
+
+        # Exactly 2 token events were emitted before the raise guard
+        # fired; then a single error frame; then a clean close (NO
+        # done event because we returned early).
+        assert len(token_events) == 2, f"expected 2 token events, got {len(token_events)}"
+        assert [e["payload"]["delta"] for e in token_events] == ["alpha", "beta"]
+        assert len(error_events) == 1
+        assert error_events[0]["payload"]["error"] == "llm_failed"
+        assert "LLM call failed" in error_events[0]["payload"]["detail"]
+        assert len(done_events) == 0
+
+    def test_stream_retrieval_failure_returns_json_500_not_sse(
+        self, tiny_settings: Any
+    ) -> None:
+        """Pre-stream errors stay JSON 5xx — NOT an SSE stream.
+
+        Retrieval / prompt-build errors fire BEFORE any SSE frame is
+        constructed, so the client gets the uniform ``ErrorResponse``
+        JSON body. Only LLM failures can happen mid-stream, and those
+        use the ``{"event":"error"}`` envelope.
+        """
+        from tinyrag.api import deps as api_deps
+
+        def boom(_request: Request) -> None:
+            raise RuntimeError("simulated retriever failure")
+
+        app = create_app(tiny_settings, llm_kind="fake", embedder_kind="fake")
+        app.dependency_overrides[api_deps.get_retriever] = boom  # type: ignore[dict-item]
+
+        with TestClient(app, raise_server_exceptions=False) as c, c.stream(
+            "POST",
+            "/api/query?stream=true",
+            json={"query": "anything"},
+        ) as r:
+            assert r.status_code == 500
+            # JSON body, NOT text/event-stream.
+            assert "application/json" in r.headers["content-type"]
+            # Drain the body so r.json() works on a streamed response.
+            r.read()
+            body = r.json()
+            assert body["error"] == "internal_server_error"
+
+    def test_stream_log_query_false_skips_db_write(
+        self, client: Any, tiny_settings: Any
+    ) -> None:
+        """``log_query=false`` still skips the write in the streaming path."""
+        from tinyrag.storage.metadata import MetadataStore
+
+        before = len(
+            MetadataStore(tiny_settings.paths.metadata_db).get_recent_queries(limit=100)
+        )
+
+        with client.stream(
+            "POST",
+            "/api/query?stream=true",
+            json={"query": "do not log me streaming", "log_query": False},
+        ) as r:
+            assert r.status_code == 200
+            r.read()  # drain
+
+        after = MetadataStore(tiny_settings.paths.metadata_db).get_recent_queries(
+            limit=100
+        )
+        assert len(after) == before, "log_query=False must not write a row"
 
 
 class TestErrorHandlers:

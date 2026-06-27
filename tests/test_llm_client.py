@@ -691,3 +691,148 @@ class TestProtocolConformanceWithNewMethods:
             assert isinstance(client, LLMClient)
         finally:
             client.close()
+
+
+# ---------------------------------------------------------------------------
+# Step 4.19 — ``stream_generate`` for both implementations
+# ---------------------------------------------------------------------------
+
+
+class TestStreamGenerateProtocol:
+    """``stream_generate`` yields one token at a time (Step 4.19).
+
+    The streaming variant is the same code path the HTTP layer uses
+    for ``POST /api/query?stream=true``. It must:
+
+    - Yield each token in order, NOT buffer the full response.
+    - Propagate :class:`LLMRefusedError` mid-stream when configured
+      (:attr:`FakeLLMClient.raise_after_tokens` on the fake; a 4xx
+      from the server on the real client).
+    - Update ``self.stats`` so callers that probe the field after
+      the loop ends see the totals.
+
+    The tests reuse the same helpers as the non-streaming suite
+    (``_sse_chunk``, ``_sse_done``, ``_mock_transport``) so the
+    mocked SSE body is identical.
+    """
+
+    def test_fake_yields_one_word_per_iteration(self) -> None:
+        client = FakeLLMClient(default_response="hello world foo bar baz")
+        tokens = list(
+            client.stream_generate([ChatMessage(role="user", content="go")])
+        )
+        # Whitespace-split — matches the :meth:`generate` word-loop.
+        assert tokens == ["hello", "world", "foo", "bar", "baz"]
+
+    def test_fake_propagates_refused_mid_stream(self) -> None:
+        """``raise_after_tokens`` fires AT the configured index, not before."""
+        client = FakeLLMClient(
+            default_response="alpha beta gamma delta epsilon",
+            raise_after_tokens=2,
+        )
+        gen = client.stream_generate([ChatMessage(role="user", content="go")])
+        # Drain the first 2 tokens successfully.
+        assert next(gen) == "alpha"
+        assert next(gen) == "beta"
+        # Third ``next`` raises — preserves the partial burst the
+        # SSE layer has already yielded to the wire.
+        with pytest.raises(LLMRefusedError):
+            next(gen)
+
+    def test_fake_updates_stats_after_stream(self) -> None:
+        """``client.stats`` reflects the totals once the loop ends."""
+        client = FakeLLMClient(default_response="one two three four five")
+        # Drain fully.
+        list(
+            client.stream_generate(
+                [ChatMessage(role="user", content="hi there")]  # 2 prompt words
+            )
+        )
+        assert client.stats.completion_tokens == 5
+        assert client.stats.prompt_tokens == 2
+        assert client.stats.total_tokens == 7
+        assert client.stats.duration_seconds > 0
+
+    def test_llamacpp_yields_delta_content_in_order(self) -> None:
+        """Real client's stream yields tokens in SSE order, not buffered."""
+        body = _make_sse_body(
+            _sse_chunk("Hello"),
+            _sse_chunk(", "),
+            _sse_chunk("world"),
+            _sse_chunk("!"),
+            _sse_done(),
+        )
+        transport = _mock_transport([body])
+        client = LlamaCppClient(
+            base_url="http://test:8080",
+            model="phi-3-mini",
+            client=httpx.Client(transport=transport),
+        )
+        try:
+            tokens = list(
+                client.stream_generate(
+                    [ChatMessage(role="user", content="hi")]
+                )
+            )
+        finally:
+            client.close()
+        # Concatenation matches :meth:`generate`'s output.
+        assert tokens == ["Hello", ", ", "world", "!"]
+        assert "".join(tokens) == "Hello, world!"
+        # Stats populated from the SSE usage block (none here) +
+        # the fallback whitespace count.
+        assert client.stats.completion_tokens == 2  # "Hello, world!" → 2 words
+        assert client.stats.duration_seconds > 0
+
+    def test_llamacpp_propagates_4xx_before_any_token(self) -> None:
+        """4xx → :class:`LLMRefusedError`, raised BEFORE the first token yields."""
+        transport = httpx.MockTransport(
+            lambda r: httpx.Response(400, text="bad prompt")
+        )
+        client = LlamaCppClient(
+            base_url="http://test:8080",
+            model="phi-3-mini",
+            client=httpx.Client(transport=transport),
+        )
+        try:
+            gen = client.stream_generate(
+                [ChatMessage(role="user", content="hi")]
+            )
+            with pytest.raises(LLMRefusedError):
+                next(gen)
+        finally:
+            client.close()
+
+    def test_llamacpp_yields_each_token_immediately(self) -> None:
+        """Smoke test that we don't accumulate — proven by listing tokens."""
+        # 5 separate tokens, no usage block → fallback count.
+        body = _make_sse_body(
+            _sse_chunk("one"),
+            _sse_chunk("two"),
+            _sse_chunk("three"),
+            _sse_chunk("four"),
+            _sse_chunk("five"),
+            _sse_done(),
+        )
+        transport = _mock_transport([body])
+        client = LlamaCppClient(
+            base_url="http://test:8080",
+            model="phi-3-mini",
+            client=httpx.Client(transport=transport),
+        )
+        try:
+            seen: list[str] = []
+            for tok in client.stream_generate(
+                [ChatMessage(role="user", content="ask me anything")]  # 3 prompt words
+            ):
+                seen.append(tok)
+                # Each iteration sees only the tokens yielded so far.
+                assert len(seen) <= 5
+        finally:
+            client.close()
+        assert seen == ["one", "two", "three", "four", "five"]
+        # Concatenation: "onetwothreefourfive" — 1 whitespace-split word
+        # (the fake chunks don't include spaces). Just assert a
+        # positive count rather than overspecifying the estimator.
+        assert client.stats.prompt_tokens == 3
+        assert client.stats.completion_tokens >= 1

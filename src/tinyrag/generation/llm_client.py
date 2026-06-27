@@ -37,7 +37,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -168,6 +168,39 @@ class LLMClient(Protocol):
         """
         ...
 
+    def stream_generate(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        temperature: float = DEFAULT_TEMPERATURE,
+    ) -> Iterator[str]:
+        """Yield one LLM token at a time.
+
+        Equivalent to :meth:`generate` but yields each token as it
+        arrives, so the HTTP layer can emit per-token SSE events
+        (Step 4.19). The Protocol declares a **sync** generator —
+        ``sse-starlette`` accepts sync iterators and wraps them in
+        ``anyio.to_thread.run_sync`` so the FastAPI event loop is
+        never blocked (see ``sse_starlette/sse.py:190-193``).
+
+        Contract
+        ---------
+        - Tokens are yielded in the order the model emits them.
+        - The caller is responsible for assembling the full text by
+          joining the yielded tokens — implementations do NOT
+          accumulate internally (so the caller can ``yield``
+          immediately to the SSE wire).
+        - Implementations MAY raise :class:`LLMUnavailableError` or
+          :class:`LLMRefusedError` mid-stream if the server fails;
+          the HTTP layer wraps this into a single
+          ``{"event":"error"}`` SSE frame (no partial tokens lost).
+        - Implementations SHOULD update ``self.stats`` so callers
+          that follow with :meth:`generate` (or that read ``stats``
+          after the loop) see the totals.
+        """
+        ...
+
     def model_name(self) -> str:
         """Return the model id this client is configured to call."""
         ...
@@ -262,6 +295,67 @@ class FakeLLMClient:
             duration_seconds=time.monotonic() - start,
         )
         return text, self.stats
+
+    def stream_generate(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        temperature: float = DEFAULT_TEMPERATURE,
+    ) -> Iterator[str]:
+        """Yield one whitespace-separated word at a time.
+
+        Mirrors the :meth:`generate` word-loop but yields each word
+        instead of appending. The order, the
+        :attr:`token_delay_seconds` pause, and the
+        :attr:`raise_after_tokens` failure mode are all preserved so
+        the SSE code path is exercised with the same knob set as
+        the non-streaming one. ``self.stats`` is updated at the end
+        (or on early raise) so subsequent :meth:`generate` callers
+        see the totals.
+
+        Note: ``max_tokens`` and ``temperature`` are accepted but
+        ignored — the fake client has no model to apply them to.
+        They exist only to match the :class:`LLMClient` Protocol
+        signature so a single dependency-injection site can call
+        either method.
+        """
+        start = time.monotonic()
+        # Pick a response based on user-message content overrides.
+        response = self.default_response
+        for needle, canned in self.response_overrides.items():
+            if any(needle in m.content for m in messages):
+                response = canned
+                break
+
+        full: list[str] = []
+        try:
+            for i, word in enumerate(response.split(" ")):
+                if self.token_delay_seconds > 0:
+                    time.sleep(self.token_delay_seconds)
+                if (
+                    self.raise_after_tokens is not None
+                    and i >= self.raise_after_tokens
+                ):
+                    raise LLMRefusedError(
+                        f"FakeLLMClient configured to raise after "
+                        f"{self.raise_after_tokens} tokens"
+                    )
+                full.append(word)
+                yield word
+        finally:
+            # Update stats whether the loop finished naturally or
+            # exited via the raise-after-tokens guard — callers
+            # that probe ``self.stats`` after the loop ends should
+            # see the totals actually produced.
+            text = " ".join(full)
+            self.stats = GenerationStats(
+                prompt_tokens=sum(len(m.content.split()) for m in messages),
+                completion_tokens=len(text.split()),
+                total_tokens=sum(len(m.content.split()) for m in messages)
+                + len(text.split()),
+                duration_seconds=time.monotonic() - start,
+            )
 
     def model_name(self) -> str:
         return self.model
@@ -468,6 +562,137 @@ class LlamaCppClient:
             total_tokens = prompt_tokens + completion_tokens
 
         return text, GenerationStats(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            duration_seconds=time.monotonic() - start,
+        )
+
+    def stream_generate(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        temperature: float = DEFAULT_TEMPERATURE,
+    ) -> Iterator[str]:
+        """POST to /v1/chat/completions with ``stream=true`` and yield tokens.
+
+        Equivalent to :meth:`generate` but yields each
+        ``choices[].delta.content`` as soon as it arrives, instead of
+        accumulating into a single string. The HTTP layer (Step 4.19)
+        wraps this generator in an ``EventSourceResponse`` so the
+        dashboard can render tokens one-by-one.
+
+        The usage block (``"usage": {...}`` in the last chunk) is
+        still captured into ``self.stats`` so callers that read the
+        field after the loop ends see real ``prompt_tokens`` /
+        ``completion_tokens`` values.
+
+        Raises
+        ------
+        LLMUnavailableError:
+            Connection error, timeout, or 5xx response (raised before
+            any token is yielded, OR mid-stream if the server
+            disconnects after the first byte).
+        LLMRefusedError:
+            4xx response — the model rejected the prompt. Raised
+            before any token is yielded.
+        """
+        url = f"{self.base_url}{self.chat_completions_path}"
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [m.to_openai() for m in messages],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+
+        start = time.monotonic()
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+        text_parts: list[str] = []
+
+        # NB: the ``stats`` attribute is mutated AFTER the loop so
+        # the totals reflect what was actually streamed (rather
+        # than zero on early failure). Callers should NOT read
+        # ``self.stats`` mid-stream — wait for the generator to
+        # finish.
+        try:
+            with self._http().stream("POST", url, json=payload) as response:
+                if response.status_code >= 500:
+                    raise LLMUnavailableError(
+                        f"llama-server returned {response.status_code}: "
+                        f"{response.read().decode('utf-8', errors='replace')[:200]}"
+                    )
+                if response.status_code >= 400:
+                    raise LLMRefusedError(
+                        f"llama-server rejected the request ({response.status_code}): "
+                        f"{response.read().decode('utf-8', errors='replace')[:200]}"
+                    )
+
+                # llama-server sends SSE lines of the form
+                #   data: {"choices":[{"delta":{"content":"tok"}, ...}], ...}
+                # terminated by a final ``data: [DONE]``.
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data:"):
+                        data = line[len("data:"):].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            logger.warning(
+                                "Skipping malformed SSE line: %r", line[:200]
+                            )
+                            continue
+                        # Extract the delta content, if any — yield
+                        # IMMEDIATELY (no buffering) so the SSE wire
+                        # sees the token as soon as the server sent it.
+                        for choice in chunk.get("choices", []):
+                            delta = choice.get("delta") or {}
+                            content = delta.get("content")
+                            if content:
+                                text_parts.append(content)
+                                yield content
+                        # Some chunks carry the usage block (usually the last one).
+                        if "usage" in chunk:
+                            usage = chunk["usage"]
+                            prompt_tokens = usage.get(
+                                "prompt_tokens", prompt_tokens
+                            )
+                            completion_tokens = usage.get(
+                                "completion_tokens", completion_tokens
+                            )
+                            total_tokens = usage.get(
+                                "total_tokens", total_tokens
+                            )
+        except httpx.TimeoutException as exc:
+            raise LLMUnavailableError(
+                f"llama-server timed out after {self.timeout_s}s"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise LLMUnavailableError(
+                f"HTTP error talking to llama-server: {exc}"
+            ) from exc
+
+        text = "".join(text_parts)
+        # Defensive fallback if the server didn't include a usage block
+        # (older builds or certain quantization combos). Estimate
+        # token count by whitespace splitting — not exact, but it's
+        # the best we can do without re-tokenising.
+        if completion_tokens == 0 and text:
+            completion_tokens = len(text.split())
+        if prompt_tokens == 0:
+            prompt_tokens = sum(len(m.content.split()) for m in messages)
+        if total_tokens == 0:
+            total_tokens = prompt_tokens + completion_tokens
+
+        # Mirror :meth:`generate` so callers reading ``self.stats``
+        # after the stream ends see the same numbers.
+        self.stats = GenerationStats(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,

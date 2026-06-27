@@ -127,12 +127,25 @@ class AskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-#: Response body for ``POST /api/query``. We type this as ``dict[str, Any]``
-#: because the shape is the :meth:`tinyrag.core.answer.Answer.to_dict`
-#: output — a curated dict with citation sub-objects + 2dp-rounded
-#: floats + token counts + per-stage timings. Step 4.19 will add SSE
-#: streaming-only fields (``first_token_ms``, ``token_events``) without
-#: changing the JSON contract for the non-streaming path.
+#: Response body for ``POST /api/query`` (non-streaming).
+#:
+#: We type this as ``dict[str, Any]`` because the shape is the
+#: :meth:`tinyrag.core.answer.Answer.to_dict` output — a curated dict
+#: with citation sub-objects + 2dp-rounded floats + token counts +
+#: per-stage timings.
+#:
+#: Step 4.19 added the SSE streaming path (see ``?stream=true`` on the
+#: route). The streaming variant emits
+#: ``text/event-stream`` frames rather than this JSON blob:
+#:
+#: - ``{"event": "token", "delta": "<token>"}`` per LLM token
+#: - ``{"event": "done", "answer": <this same dict shape>}`` final frame
+#: - ``{"event": "error", "error": "llm_failed", "detail": "..."}``
+#:   if the LLM fails mid-stream
+#:
+#: The JSON contract is unchanged — the streaming path's final
+#: ``done`` event carries the same dict this type describes. See
+#: ``tinyrag.api.routes_query._stream_answer`` for the wire format.
 AskResponse = dict[str, Any]
 
 
