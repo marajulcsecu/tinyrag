@@ -215,10 +215,16 @@
         const decoder = new TextDecoder("utf-8");
         let buffer = "";
 
-        // SSE frames are separated by a blank line, i.e. \n\n. We
-        // accumulate bytes into `buffer` and split on that boundary
-        // once we've seen enough. Each frame then has lines of the
-        // form `event: <name>` and `data: <json>`.
+        // SSE frames are separated by a blank line — the SSE spec
+        // says "\n\n" but several servers (including sse-starlette,
+        // which we use) emit "\r\n\r\n" because the spec allows CRLF
+        // line endings anywhere. We accept BOTH so the parser works
+        // regardless of which separator the producer picked. The
+        // regex is intentionally non-capturing and uses `\r?\n`
+        // twice so it matches "\n\n", "\r\n\r\n", "\r\n\n", and
+        // "\n\r\n" — every legal SSE frame terminator.
+        const FRAME_SEP = /\r?\n\r?\n/;
+
         while (true) {
             const { value, done } = await reader.read();
             if (done) {
@@ -228,14 +234,17 @@
 
             // Process every complete frame in the buffer. We loop
             // because a single read() can deliver multiple frames.
-            let sepIdx;
-            // indexOf in a while-loop is intentional — splitting on
+            let sepMatch;
+            // exec() in a while-loop is intentional — splitting on
             // the first occurrence and re-searching lets us handle
             // any number of frames per read.
-            // eslint-disable-next-line no-cond-assign
-            while ((sepIdx = buffer.indexOf("\n\n")) !== -1) {
-                const rawFrame = buffer.slice(0, sepIdx);
-                buffer = buffer.slice(sepIdx + 2);
+            while ((sepMatch = FRAME_SEP.exec(buffer)) !== null) {
+                const rawFrame = buffer.slice(0, sepMatch.index);
+                // Advance buffer past the separator. Note: we use
+                // sepMatch[0].length (the actual matched bytes),
+                // not a hard-coded 2, so we handle both "\n\n"
+                // (length 2) and "\r\n\r\n" (length 4) correctly.
+                buffer = buffer.slice(sepMatch.index + sepMatch[0].length);
                 if (rawFrame.trim().length > 0) {
                     handleSseFrame(rawFrame, assistantBubble);
                 }
