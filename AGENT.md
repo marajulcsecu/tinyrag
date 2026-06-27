@@ -299,13 +299,15 @@ PYTHONPATH=src ~/venvs/tinyrag/bin/python scripts/ingest_sensors.py \
 # data/vector_stores/sensors.faiss.
 
 # 3. Verify the DB + FAISS side-effects landed correctly:
-sqlite3 data/metadata.db \
+#    (NOTE: the FK column is `document_id`, not `doc_id` —
+#     see src/tinyrag/storage/metadata.py SCHEMA_SQL.)
+sqlite3 -header -column data/metadata.db \
     "SELECT doc_type, filename, COUNT(*) AS chunks FROM documents
-     JOIN chunks ON chunks.doc_id = documents.id
+     JOIN chunks ON chunks.document_id = documents.id
      WHERE doc_type = 'sensor_summary'
      GROUP BY doc_type, filename;"
-# Expected: 1 row, doc_type=sensor_summary, filename=sensor_summary,
-# chunks=180.
+# Expected: 1 row, doc_type=sensor_summary,
+# filename=synthetic_30d.csv, chunks=180.
 ```
 
 **Optional parallel student action — you can verify Step 4.13 yourself:**
