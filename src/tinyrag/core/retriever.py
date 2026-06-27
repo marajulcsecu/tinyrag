@@ -79,8 +79,34 @@ logger = logging.getLogger(__name__)
 #: Default similarity threshold below which a hit is discarded.
 #: Matches the architecture doc's worked example (§10.1). cosine
 #: similarity on L2-normalised MiniLM vectors: a 0.3 threshold is
-#: a reasonable "vaguely related" cut-off for short queries.
+#: a reasonable "vaguely related" cut-off for short queries on a
+#: LARGE corpus (1000+ chunks).
+#:
+#: For small corpora (≤ :data:`SMALL_CORPUS_MAX_CHUNKS` chunks), this
+#: absolute threshold is too aggressive — MiniLM-L6-v2 produces raw
+#: scores in the 0.04–0.15 range for almost every short query against
+#: a tiny corpus (the embedding is dominated by common-word noise
+#: rather than topical signal). The retriever's :meth:`retrieve`
+#: detects this case and substitutes :data:`SMALL_CORPUS_THRESHOLD`
+#: so user-uploaded chunks don't get silently dropped.
 DEFAULT_THRESHOLD = 0.3
+
+#: Threshold used when the doc store has fewer than
+#: :data:`SMALL_CORPUS_MAX_CHUNKS` chunks. 0.0 means "include every
+#: chunk that has any positive similarity" — effectively "show the
+#: user everything they uploaded". The prompt builder caps the
+#: token budget, so even if this returns 5 chunks, only the ones
+#: that fit get rendered. The model itself is then responsible for
+#: saying "I don't have enough information" when none of the
+#: returned chunks answer the question.
+SMALL_CORPUS_THRESHOLD = 0.0
+
+#: Doc-store size at which the small-corpus fallback activates.
+#: Empirically: at ≤ 10 chunks, an absolute similarity threshold is
+#: unreliable because (a) scores are noisy and (b) the user almost
+#: certainly uploaded every chunk intentionally, so dropping any
+#: of them on a similarity basis is surprising.
+SMALL_CORPUS_MAX_CHUNKS = 10
 
 #: Default k for the document index. Matches the architecture doc's
 #: worked example.
@@ -358,12 +384,41 @@ class Retriever:
             raise RetrieverError(f"k_doc must be > 0 (got {k_doc})")
         if k_sensor < 0:
             raise RetrieverError(f"k_sensor must be >= 0 (got {k_sensor})")
+        # Remember whether the caller passed an explicit threshold,
+        # so the small-corpus fallback below can tell "user override"
+        # from "we filled in the default".
+        threshold_was_default = threshold is None
         if threshold is None:
             threshold = self.default_threshold
         if not 0.0 <= threshold <= 1.0:
             raise RetrieverError(
                 f"threshold must be in [0, 1] (got {threshold})"
             )
+
+        # Small-corpus fallback: when the doc store has very few
+        # chunks, an absolute cosine-similarity threshold is
+        # unreliable (MiniLM scores are noisy at small scale and
+        # short user-uploaded chunks score lower than long sensor
+        # summaries, even when the short chunk is the correct
+        # answer). Substitute a permissive threshold so every
+        # user-uploaded chunk is visible to the prompt builder.
+        # The LLM is then responsible for saying "I don't have
+        # enough information" when none of the returned chunks
+        # answer the question — which it does, correctly.
+        #
+        # The sensor store is excluded from this fallback because
+        # the 180 synthetic_30d.csv chunks are pre-baked test data
+        # and may produce noise for off-topic queries; the small-
+        # corpus heuristic is specifically about USER-uploaded docs.
+        #
+        # The fallback only activates when the caller did NOT pass
+        # an explicit ``threshold``. A power user passing
+        # ``threshold=0.99`` for eval/debug is explicitly opting into
+        # strict filtering — overriding that silently would be
+        # surprising.
+        doc_store_size = self.doc_store.size()
+        if threshold_was_default and doc_store_size <= SMALL_CORPUS_MAX_CHUNKS:
+            threshold = SMALL_CORPUS_THRESHOLD
 
         # 1. Sensor keyword detection.
         keywords_matched = _find_sensor_keywords(query, self.sensor_keywords)

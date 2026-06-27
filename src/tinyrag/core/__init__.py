@@ -77,6 +77,8 @@ from tinyrag.core.retriever import (
     RetrieverError,
     RetrieverMetadataError,
     RetrieverSearchError,
+    SMALL_CORPUS_MAX_CHUNKS,
+    SMALL_CORPUS_THRESHOLD,
     adapt_metadata_store,
 )
 from tinyrag.core.sensor_summarizer import (
@@ -109,6 +111,8 @@ __all__ = [
     "RetrieverError",
     "RetrieverMetadataError",
     "RetrieverSearchError",
+    "SMALL_CORPUS_MAX_CHUNKS",
+    "SMALL_CORPUS_THRESHOLD",
     "SensorSummarizer",
     "SensorSummarizerEmptyError",
     "SensorSummarizerError",

@@ -74,6 +74,7 @@ from tinyrag.core import (
     RetrieverError,
     RetrieverMetadataError,
     RetrieverSearchError,
+    SMALL_CORPUS_MAX_CHUNKS,
 )
 from tinyrag.ingestion.embedder import FakeEmbedder
 from tinyrag.storage.metadata import ChunkRecord, MetadataStore
@@ -197,11 +198,27 @@ def _build_retriever(
     chunks_by_id: dict[str, ChunkRecord] | None = None,
     docs_by_id: dict[str, Any] | None = None,
     sensor_keywords: frozenset[str] = DEFAULT_SENSOR_KEYWORDS,
+    doc_store_size: int | None = None,
     **kwargs,
 ) -> tuple[Retriever, FakeVectorStore, FakeVectorStore, FakeMetadataAccessor]:
-    """Wire a Retriever with fake stores. Returns (retriever, doc, sensor, meta)."""
+    """Wire a Retriever with fake stores. Returns (retriever, doc, sensor, meta).
+
+    Parameters
+    ----------
+    doc_store_size:
+        Override ``FakeVectorStore.size()``. The real production
+        small-corpus fallback activates at ≤
+        :data:`SMALL_CORPUS_MAX_CHUNKS`; tests that exercise the
+        threshold-filtering path need to declare a "large" doc store
+        so the fallback doesn't mask the behaviour they're testing.
+        Defaults to ``len(doc_hits)`` (so a 1-hit fixture is treated
+        as small, matching production behaviour).
+    """
     embedder = FakeEmbedder()
     doc_store = FakeVectorStore(doc_hits or [])
+    if doc_store_size is not None:
+        # Replace size() with a closure that returns the override.
+        doc_store.size = lambda n=doc_store_size: n  # type: ignore[assignment]
     sensor_store = FakeVectorStore(sensor_hits or [])
     meta = FakeMetadataAccessor(chunks_by_id or {}, docs_by_id or {})
     r = Retriever(
@@ -437,10 +454,14 @@ class TestRetrieveThreshold:
 
     def test_below_threshold_dropped(self) -> None:
         rec = _make_chunk_record("c1")
+        # doc_store_size=50 forces the "large corpus" path so the
+        # small-corpus fallback (which sets threshold=0) doesn't mask
+        # the behaviour under test.
         r, _, _, _ = _build_retriever(
             doc_hits=[("c1", 0.10)],  # well below the default 0.3
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=50,
         )
         result = r.retrieve("Q?")
         assert len(result.chunks) == 0
@@ -451,6 +472,7 @@ class TestRetrieveThreshold:
             doc_hits=[("c1", 0.85)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=50,
         )
         result = r.retrieve("Q?")
         assert len(result.chunks) == 1
@@ -461,6 +483,7 @@ class TestRetrieveThreshold:
             doc_hits=[("c1", 0.50)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=50,
         )
         # Strict threshold → drop.
         assert len(r.retrieve("Q?", threshold=0.9).chunks) == 0
@@ -473,6 +496,7 @@ class TestRetrieveThreshold:
             doc_hits=[("c1", 0.01)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=50,
         )
         assert len(r.retrieve("Q?", threshold=0.0).chunks) == 1
 
@@ -482,9 +506,98 @@ class TestRetrieveThreshold:
             doc_hits=[("c1", 0.99)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=50,
         )
         assert len(r.retrieve("Q?", threshold=1.0).chunks) == 0
         assert len(r.retrieve("Q?", threshold=0.99).chunks) == 1
+
+
+# ---------------------------------------------------------------------------
+# Small-corpus fallback (Step 4.25)
+# ---------------------------------------------------------------------------
+#
+# The retriever's :func:`retrieve` lowers its similarity threshold to
+# 0 when the doc store has ≤ :data:`SMALL_CORPUS_MAX_CHUNKS` chunks.
+# Rationale: MiniLM-L6-v2's absolute cosine scores are noisy on small
+# corpora (1-10 chunks) because short user-uploaded chunks score
+# lower than long sensor summaries. A threshold-based filter would
+# silently drop user uploads even when they're the only thing the
+# user wants the model to see. The fallback is opt-out via
+# ``doc_store_size`` in the test fixture (we mark the corpus as
+# "large" when we want to exercise the threshold-filtering path).
+
+
+class TestSmallCorpusFallback:
+    """When doc_store.size() <= SMALL_CORPUS_MAX_CHUNKS, the threshold
+    is overridden to SMALL_CORPUS_THRESHOLD (0.0) so every doc hit
+    survives."""
+
+    def test_low_score_chunk_kept_when_doc_store_is_small(self) -> None:
+        """Score 0.05 is well below the production default 0.3, but
+        must survive on a 1-chunk corpus so user uploads aren't
+        silently dropped."""
+        rec = _make_chunk_record("c1")
+        r, _, _, _ = _build_retriever(
+            doc_hits=[("c1", 0.05)],
+            chunks_by_id={"c1": rec},
+            docs_by_id={"doc-1": _make_doc()},
+            # doc_store_size defaults to len(doc_hits) = 1, so the
+            # small-corpus fallback applies.
+        )
+        result = r.retrieve("Q?")
+        assert len(result.chunks) == 1
+        assert result.chunks[0].text == rec.text
+
+    def test_fallback_does_not_apply_when_doc_store_is_large(self) -> None:
+        """Score 0.05 must be dropped on a large corpus so we don't
+        drown the prompt in noise."""
+        rec = _make_chunk_record("c1")
+        r, _, _, _ = _build_retriever(
+            doc_hits=[("c1", 0.05)],
+            chunks_by_id={"c1": rec},
+            docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=50,  # > SMALL_CORPUS_MAX_CHUNKS
+        )
+        result = r.retrieve("Q?")
+        assert len(result.chunks) == 0
+
+    def test_fallback_boundary_at_small_corpus_max(self) -> None:
+        """At exactly SMALL_CORPUS_MAX_CHUNKS chunks, the fallback
+        still applies (uses <=). One more chunk turns it off."""
+        rec = _make_chunk_record("c1")
+        # Exactly at the boundary: fallback ON.
+        r_on, _, _, _ = _build_retriever(
+            doc_hits=[("c1", 0.02)],
+            chunks_by_id={"c1": rec},
+            docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=SMALL_CORPUS_MAX_CHUNKS,
+        )
+        assert len(r_on.retrieve("Q?").chunks) == 1
+        # One above the boundary: fallback OFF.
+        r_off, _, _, _ = _build_retriever(
+            doc_hits=[("c1", 0.02)],
+            chunks_by_id={"c1": rec},
+            docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=SMALL_CORPUS_MAX_CHUNKS + 1,
+        )
+        assert len(r_off.retrieve("Q?").chunks) == 0
+
+    def test_explicit_threshold_still_wins_when_doc_store_small(self) -> None:
+        """A caller-passed threshold=0.99 is preserved when the doc
+        store is small (we only override the DEFAULT, not a caller
+        override). This matches the documented contract:
+        ``threshold`` parameter beats the small-corpus heuristic."""
+        rec = _make_chunk_record("c1")
+        r, _, _, _ = _build_retriever(
+            doc_hits=[("c1", 0.50)],
+            chunks_by_id={"c1": rec},
+            docs_by_id={"doc-1": _make_doc()},
+            # doc_store_size defaults to 1 (small).
+        )
+        # Explicit threshold beats the fallback.
+        assert len(r.retrieve("Q?", threshold=0.99).chunks) == 0
+        # Without explicit threshold, fallback keeps it.
+        assert len(r.retrieve("Q?").chunks) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -938,6 +1051,7 @@ class TestUsedSensorIdxSemantics:
                 "doc-1": _make_doc("Nest.pdf"),
                 "sensor-doc": _make_doc("sensor.md"),
             },
+            doc_store_size=50,  # force "large corpus" path so threshold applies
         )
         result = r.retrieve("What was the temperature yesterday?")
         # Sensor ran but its hit was filtered → used_sensor_idx is False.
@@ -994,6 +1108,7 @@ class TestIntegrationWithPromptBuilder:
             doc_hits=[("c1", 0.10)],  # below threshold
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=50,  # force "large corpus" path
         )
         result = r.retrieve("Q?")
         assert len(result.chunks) == 0
