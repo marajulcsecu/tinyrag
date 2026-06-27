@@ -24,7 +24,8 @@ Modules
   :class:`~tinyrag.core.prompt_builder.PromptBuilder` and
   :class:`~tinyrag.core.prompt_builder.Prompt`.
 - :mod:`tinyrag.core.answer` — the dataclass for a final answer +
-  citation list (Step 4.14).
+  citation list (Step 4.16). Provides :class:`~tinyrag.core.answer.Answer`
+  and :class:`~tinyrag.core.answer.Citation`.
 - :mod:`tinyrag.core.sensor_summarizer` — sensor data →
   text-summary chunks for indexing (Step 4.14). Provides
   :class:`~tinyrag.core.sensor_summarizer.SensorSummarizer` and
@@ -47,6 +48,12 @@ Location: ``src/tinyrag/core/``
 
 from __future__ import annotations
 
+from tinyrag.core.answer import (
+    Answer,
+    Citation,
+    build_citations,
+    build_citations_from_chunks,
+)
 from tinyrag.core.chunker import Chunk, Chunker, ChunkingError, default_chunker
 from tinyrag.core.prompt_builder import (
     DEFAULT_MAX_PROMPT_TOKENS,
@@ -80,9 +87,11 @@ from tinyrag.core.sensor_summarizer import (
 )
 
 __all__ = [
+    "Answer",
     "Chunk",
     "Chunker",
     "ChunkingError",
+    "Citation",
     "DEFAULT_K_DOC",
     "DEFAULT_K_SENSOR",
     "DEFAULT_MAX_PROMPT_TOKENS",
@@ -106,6 +115,8 @@ __all__ = [
     "SensorSummarizerSchemaError",
     "USER_MESSAGE_TEMPLATE",
     "adapt_metadata_store",
+    "build_citations",
+    "build_citations_from_chunks",
     "default_chunker",
     "default_prompt_builder",
 ]
