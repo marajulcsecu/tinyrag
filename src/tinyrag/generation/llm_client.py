@@ -424,7 +424,33 @@ class LlamaCppClient:
 
     def _http(self) -> httpx.Client:
         if self.client is None:
-            self.client = httpx.Client(timeout=self.timeout_s)
+            # Per-operation timeouts, NOT a single ``timeout=self.timeout_s``
+            # passed to the client. Why? The streaming generator
+            # (:meth:`stream_generate`) reads chunks over a long-lived
+            # connection — a single 120 s budget is consumed by the
+            # *whole* response. If llama.cpp's prompt eval is slow on a
+            # cold KV cache (~8 s for Phi-3 Mini 3.8B Q4_K_M) and the
+            # first eval token takes another 30-60 s to surface, the
+            # read of that first chunk alone eats a huge slice of the
+            # 120 s budget. Subsequent chunks then race against the
+            # *remaining* time and httpx raises ``TimeoutException``
+            # mid-stream with the cryptic
+            # ``peer closed connection without sending complete
+            # message body`` message in the browser.
+            #
+            # Setting ``read=self.timeout_s`` gives EACH chunk read its
+            # own fresh 120 s window. ``connect`` / ``write`` / ``pool``
+            # are short (10 s) because they correspond to TCP setup +
+            # request upload, which should be near-instant for an
+            # in-process llama-server.
+            self.client = httpx.Client(
+                timeout=httpx.Timeout(
+                    connect=10.0,
+                    read=self.timeout_s,
+                    write=10.0,
+                    pool=10.0,
+                )
+            )
         return self.client
 
     def close(self) -> None:
