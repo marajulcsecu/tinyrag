@@ -37,6 +37,7 @@ SHELL     := /usr/bin/env bash
 .PHONY: help venv install install-dev upgrade freeze lint format typecheck \
         test test-fast test-cov smoke smoke-e2e smoke-llm smoke-llm-all run \
         run-api run-llm clean clean-pyc clean-venv clean-all verify \
+        portability-check \
         deps-system deps-verify deps-extras \
         build build-llamacpp llama-dir \
         list-models download-llm download-llm-all download-llm-force \
@@ -91,6 +92,11 @@ help:  ## Show this help (default target)
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 	    awk 'BEGIN {FS = ":.*?## "}; \
 	         /^clean/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Verify (full-pipeline gates):"
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	    awk 'BEGIN {FS = ":.*?## "}; \
+	         /^(verify|portability-check)/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
 
@@ -194,6 +200,19 @@ smoke-e2e:  ## Phase 3 end-to-end smoke test — sends a query through LLMClient
 	fi
 
 verify: install-dev lint smoke test-fast  ## Full verify: install + lint + smoke + fast tests
+
+# Step 4.20 — Portability self-test. Clones the repo to a fresh
+# /tmp/tinyrag-portability-test/ dir, runs `make install-dev` + the
+# two smoke gates from scratch in the clone, asserts the e2e smoke
+# response is non-empty, then cleans up. Hermetic (no llama-server,
+# no sudo, no model downloads) — catches requirements.txt drift,
+# broken imports, and broken setup scripts. See scripts/portability_check.sh
+# for the full pipeline + exit-code contract. Pass --keep via the env
+# var to skip the cleanup (useful for post-mortem):
+#   make portability-check TINYRAG_PORTABILITY_FLAGS=--keep
+portability-check:  ## Clone + install + smoke from scratch in a tmp dir (Step 4.20)
+	@echo ">> Running portability check (Step 4.20)"
+	@bash scripts/portability_check.sh ${TINYRAG_PORTABILITY_FLAGS}
 
 
 # ---- Run ------------------------------------------------------------------
