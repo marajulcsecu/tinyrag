@@ -104,7 +104,7 @@ def _sample_config_dict() -> dict:
         "retrieval": {
             "doc_index_path": "data/vector_store/doc.faiss",
             "sensor_index_path": "data/vector_store/sensor.faiss",
-            "doc_top_k": 3,
+            "doc_top_k": 5,
             "sensor_top_k": 2,
             "similarity_threshold": 0.3,
             "index_type": "faiss",
@@ -213,7 +213,7 @@ class TestLoadSettings:
         assert s.embedding.model_name == "sentence-transformers/all-MiniLM-L6-v2"
         assert s.chunking.chunk_size == 400
         assert s.chunking.chunk_overlap == 50
-        assert s.retrieval.doc_top_k == 3
+        assert s.retrieval.doc_top_k == 5
         assert s.retrieval.similarity_threshold == 0.3
         assert s.sensors.source is SensorSource.SIMULATED
         assert s.logging.level is LogLevel.INFO
@@ -475,7 +475,7 @@ class TestConfigYamlMatchesSpec:
         assert s.embedding.batch_size == 32
         assert s.chunking.chunk_size == 400
         assert s.chunking.chunk_overlap == 50
-        assert s.retrieval.doc_top_k == 3
+        assert s.retrieval.doc_top_k == 5
         assert s.retrieval.sensor_top_k == 2
         assert s.retrieval.similarity_threshold == 0.3
         assert s.sensors.source is SensorSource.SIMULATED

@@ -497,9 +497,12 @@ class TestSchemasValidation:
         req = AskRequestSchema(query="hello")
         assert req.query == "hello"
         # Defaults from the schema.
-        assert req.k_doc == 3
+        assert req.k_doc == 5
         assert req.k_sensor == 2
-        assert req.threshold == 0.3
+        # threshold=None means "let the retriever decide" — enables
+        # the small-corpus-fallback heuristic. An explicit threshold
+        # is still accepted (see test_ask_request_accepts_threshold).
+        assert req.threshold is None
         assert req.max_tokens == 512
         assert req.log_query is True
 

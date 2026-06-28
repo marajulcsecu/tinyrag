@@ -95,18 +95,21 @@ class AskRequest(BaseModel):
         whitespace — the same invariant the prompt builder enforces
         (an empty context would let the model hallucinate freely).
     k_doc:
-        How many document-index hits to retrieve. Defaults to 3
-        (matches :data:`tinyrag.core.retriever.DEFAULT_K_DOC`).
-        Bounded to ``[1, 50]`` so a misconfigured client can't
-        ask for the whole index.
+        How many document-index hits to retrieve. Defaults to 5
+        (covers a small mixed corpus where the most-relevant chunk
+        may rank #4 or #5 — e.g. a 1-chunk manual competing with a
+        38-chunk PDF). Bounded to ``[1, 50]`` so a misconfigured
+        client can't ask for the whole index.
     k_sensor:
         How many sensor-index hits to retrieve. Defaults to 2.
         Bounded identically to ``k_doc``.
     threshold:
         Minimum cosine-similarity for a chunk to be considered a
-        hit. Defaults to 0.3 (matches
-        :data:`tinyrag.core.retriever.DEFAULT_THRESHOLD`). Bounded
-        to ``[0.0, 1.0]`` — the retriever's invariant.
+        hit. Defaults to ``None`` (the retriever's
+        :data:`~tinyrag.core.retriever.DEFAULT_THRESHOLD` /
+        small-corpus-fallback logic decides). Pass an explicit
+        value to override. Bounded to ``[0.0, 1.0]`` when set —
+        the retriever's invariant.
     max_tokens:
         Cap on generated tokens per response. Defaults to 512.
         Bounded to ``[1, 4096]`` — 4096 is the largest context
@@ -118,9 +121,16 @@ class AskRequest(BaseModel):
     """
 
     query: str = Field(min_length=1, description="The user's question.")
-    k_doc: int = Field(default=3, ge=1, le=50)
+    k_doc: int = Field(default=5, ge=1, le=50)
     k_sensor: int = Field(default=2, ge=1, le=50)
-    threshold: float = Field(default=0.3, ge=0.0, le=1.0)
+    threshold: float | None = Field(
+        default=None, ge=0.0, le=1.0,
+        description=(
+            "Min cosine-similarity. None (default) lets the retriever "
+            "use its DEFAULT_THRESHOLD + small-corpus-fallback logic. "
+            "An explicit value overrides both."
+        ),
+    )
     max_tokens: int = Field(default=512, ge=1, le=4096)
     log_query: bool = Field(default=True)
 

@@ -441,7 +441,12 @@ class TestRetrieveHappyPath:
         r, doc_store, _, _ = _build_retriever(doc_hits=[("c1", 0.85)])
         r.retrieve("Q?")
         assert doc_store.call_count == 1
-        assert doc_store.last_k == DEFAULT_K_DOC
+        # FAISS is over-fetched (rerank_fetch = max(k_doc * 5, k_doc + 10))
+        # so the keyword-overlap rerank (step 6.5) has candidates
+        # beyond the top-k to work with. Without this, a chunk that
+        # ranks #18 on dense similarity but has a strong lexical match
+        # for the query never sees the rerank and never gets promoted.
+        assert doc_store.last_k == max(DEFAULT_K_DOC * 5, DEFAULT_K_DOC + 10)
 
 
 # ---------------------------------------------------------------------------
@@ -454,14 +459,14 @@ class TestRetrieveThreshold:
 
     def test_below_threshold_dropped(self) -> None:
         rec = _make_chunk_record("c1")
-        # doc_store_size=50 forces the "large corpus" path so the
+        # doc_store_size=100 forces the "large corpus" path so the
         # small-corpus fallback (which sets threshold=0) doesn't mask
         # the behaviour under test.
         r, _, _, _ = _build_retriever(
             doc_hits=[("c1", 0.10)],  # well below the default 0.3
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
-            doc_store_size=50,
+            doc_store_size=100,
         )
         result = r.retrieve("Q?")
         assert len(result.chunks) == 0
@@ -472,7 +477,7 @@ class TestRetrieveThreshold:
             doc_hits=[("c1", 0.85)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
-            doc_store_size=50,
+            doc_store_size=100,
         )
         result = r.retrieve("Q?")
         assert len(result.chunks) == 1
@@ -483,7 +488,7 @@ class TestRetrieveThreshold:
             doc_hits=[("c1", 0.50)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
-            doc_store_size=50,
+            doc_store_size=100,
         )
         # Strict threshold → drop.
         assert len(r.retrieve("Q?", threshold=0.9).chunks) == 0
@@ -496,7 +501,7 @@ class TestRetrieveThreshold:
             doc_hits=[("c1", 0.01)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
-            doc_store_size=50,
+            doc_store_size=100,
         )
         assert len(r.retrieve("Q?", threshold=0.0).chunks) == 1
 
@@ -506,7 +511,7 @@ class TestRetrieveThreshold:
             doc_hits=[("c1", 0.99)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
-            doc_store_size=50,
+            doc_store_size=100,
         )
         assert len(r.retrieve("Q?", threshold=1.0).chunks) == 0
         assert len(r.retrieve("Q?", threshold=0.99).chunks) == 1
@@ -519,12 +524,13 @@ class TestRetrieveThreshold:
 # The retriever's :func:`retrieve` lowers its similarity threshold to
 # 0 when the doc store has ≤ :data:`SMALL_CORPUS_MAX_CHUNKS` chunks.
 # Rationale: MiniLM-L6-v2's absolute cosine scores are noisy on small
-# corpora (1-10 chunks) because short user-uploaded chunks score
+# corpora (1-50 chunks) because short user-uploaded chunks score
 # lower than long sensor summaries. A threshold-based filter would
 # silently drop user uploads even when they're the only thing the
 # user wants the model to see. The fallback is opt-out via
 # ``doc_store_size`` in the test fixture (we mark the corpus as
-# "large" when we want to exercise the threshold-filtering path).
+# "large" — 100 chunks — when we want to exercise the
+# threshold-filtering path).
 
 
 class TestSmallCorpusFallback:
@@ -556,7 +562,7 @@ class TestSmallCorpusFallback:
             doc_hits=[("c1", 0.05)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
-            doc_store_size=50,  # > SMALL_CORPUS_MAX_CHUNKS
+            doc_store_size=100,  # > SMALL_CORPUS_MAX_CHUNKS
         )
         result = r.retrieve("Q?")
         assert len(result.chunks) == 0
@@ -598,6 +604,143 @@ class TestSmallCorpusFallback:
         assert len(r.retrieve("Q?", threshold=0.99).chunks) == 0
         # Without explicit threshold, fallback keeps it.
         assert len(r.retrieve("Q?").chunks) == 1
+
+
+# ---------------------------------------------------------------------------
+# Keyword-overlap reranker (Step 4.25 rerank fix)
+# ---------------------------------------------------------------------------
+#
+# Dense MiniLM embeddings are noisy on short technical queries
+# against mixed corpora (a TOC chunk that just *mentions* "ErP
+# class 26" can outscore the actual ErP content chunk). The retriever
+# applies a cheap lexical bonus: distinctive (non-stopword) tokens
+# from the query that appear in a chunk's text bump that chunk's
+# score. The pure-function helper ``_distinctive_query_terms`` and
+# the reranker step in :meth:`retrieve` are tested in isolation
+# below.
+
+
+class TestDistinctiveQueryTerms:
+    """The pure-function that extracts stopword-filtered tokens."""
+
+    def test_filters_english_stopwords(self) -> None:
+        from tinyrag.core.retriever import _distinctive_query_terms
+
+        # "What is the ErP directive?" — only "erp" + "directive"
+        # survive (3+ chars, not in the stopword list).
+        assert _distinctive_query_terms("What is the ErP directive?") == [
+            "erp",
+            "directive",
+        ]
+
+    def test_handles_hyphenated_tokens(self) -> None:
+        from tinyrag.core.retriever import _distinctive_query_terms
+
+        # The boundary regex treats hyphens as part of a token
+        # (matches `_KEYWORD_BOUNDARY_RE`), so "non-blocking" stays
+        # one token. "non" alone is too short to survive the
+        # length filter; "non-blocking" (15 chars) passes.
+        terms = _distinctive_query_terms("How does non-blocking work?")
+        assert "non-blocking" in terms
+        assert "work" in terms
+
+    def test_returns_empty_for_pure_stopwords(self) -> None:
+        from tinyrag.core.retriever import _distinctive_query_terms
+
+        # All stopwords → empty list (reranker becomes a no-op).
+        assert _distinctive_query_terms("what is the") == []
+
+    def test_dedupes_case_insensitively(self) -> None:
+        from tinyrag.core.retriever import _distinctive_query_terms
+
+        # "RAG" appears twice; we keep the first occurrence only.
+        assert _distinctive_query_terms("What is RAG? Explain rag.") == [
+            "rag",
+            "explain",
+        ]
+
+    def test_empty_input_returns_empty(self) -> None:
+        from tinyrag.core.retriever import _distinctive_query_terms
+
+        assert _distinctive_query_terms("") == []
+
+
+class TestKeywordOverlapRerank:
+    """The reranker boosts chunks that contain distinctive query terms.
+
+    Without the rerank, dense scores dominate and a TOC chunk that
+    happens to mention the topic can outscore the actual content.
+    The rerank adds a +0.10 bonus per matching distinctive term,
+    enough to flip the order for technical lookups.
+    """
+
+    def test_rerank_pulls_keyword_match_above_dense_only_hit(self) -> None:
+        """A chunk containing ALL query terms (matching both + the
+        coverage bonus = +0.40 total) outranks a dense-only chunk
+        that's 0.15 ahead on the dense score."""
+        # Dense scores: chunk A (the right answer) = 0.05, chunk B
+        # (the noisy TOC lookalike) = 0.20.
+        chunk_a_text = "ErP directive compliance table for heating"
+        chunk_b_text = "Installation contents compatibility index"
+        rec_a = _make_chunk_record("a", text=chunk_a_text)
+        rec_b = _make_chunk_record("b", text=chunk_b_text)
+
+        r, _, _, _ = _build_retriever(
+            doc_hits=[("a", 0.05), ("b", 0.20)],
+            chunks_by_id={"a": rec_a, "b": rec_b},
+            docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=1,  # small corpus so threshold=0
+        )
+        # Without rerank: B (0.20) > A (0.05).
+        # With rerank: A matches BOTH "erp" + "directive" → +0.10*2 +
+        # 0.20 coverage bonus = +0.40 → A final = 0.45 > B (0.20).
+        result = r.retrieve("What is the ErP directive?")
+        assert result.chunks[0].text == chunk_a_text
+        assert result.chunks[1].text == chunk_b_text
+        assert result.scores[0] > result.scores[1]
+        assert result.scores[0] == pytest.approx(0.45)
+        assert result.scores[1] == pytest.approx(0.20)
+
+    def test_rerank_no_match_leaves_order_unchanged(self) -> None:
+        """When no distinctive query terms appear in any chunk, the
+        rerank is a no-op — original dense order is preserved."""
+        rec_high = _make_chunk_record("a", text="random prose about weather")
+        rec_low = _make_chunk_record("b", text="other prose about food")
+        r, _, _, _ = _build_retriever(
+            doc_hits=[("a", 0.20), ("b", 0.10)],
+            chunks_by_id={"a": rec_high, "b": rec_low},
+            docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=1,
+        )
+        # Query "what is the?" → all distinctive terms stripped → no rerank.
+        result = r.retrieve("what is the?")
+        assert result.chunks[0].text == rec_high.text
+        assert result.chunks[1].text == rec_low.text
+
+    def test_rerank_partial_match_boosts_proportionally(self) -> None:
+        """A chunk with 1 matching term gets +0.10; a chunk with ALL
+        query terms gets +0.10*N + 0.20 (the coverage bonus). The
+        coverage bonus is the strongest single rerank signal —
+        ``every query term is here`` is the textbook relevance case."""
+        rec_one = _make_chunk_record("a", text="just directive mentioned")
+        rec_two = _make_chunk_record("b", text="erp directive full")
+        rec_none = _make_chunk_record("c", text="nothing relevant here")
+        r, _, _, _ = _build_retriever(
+            doc_hits=[("a", 0.10), ("b", 0.10), ("c", 0.10)],
+            chunks_by_id={"a": rec_one, "b": rec_two, "c": rec_none},
+            docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=1,
+        )
+        result = r.retrieve("ErP directive?")
+        # b: 0.10 + (0.10 * 2 + 0.20 coverage) = 0.50 (both terms)
+        # a: 0.10 + (0.10 * 1)             = 0.20 (1 term)
+        # c: 0.10                           = 0.10 (no terms)
+        assert result.chunks[0].text == rec_two.text
+        assert result.chunks[1].text == rec_one.text
+        assert result.chunks[2].text == rec_none.text
+        assert result.scores[0] == pytest.approx(0.50)
+        assert result.scores[1] == pytest.approx(0.20)
+        assert result.scores[2] == pytest.approx(0.10)
 
 
 # ---------------------------------------------------------------------------
@@ -1051,7 +1194,7 @@ class TestUsedSensorIdxSemantics:
                 "doc-1": _make_doc("Nest.pdf"),
                 "sensor-doc": _make_doc("sensor.md"),
             },
-            doc_store_size=50,  # force "large corpus" path so threshold applies
+            doc_store_size=100,  # force "large corpus" path so threshold applies
         )
         result = r.retrieve("What was the temperature yesterday?")
         # Sensor ran but its hit was filtered → used_sensor_idx is False.
@@ -1108,7 +1251,7 @@ class TestIntegrationWithPromptBuilder:
             doc_hits=[("c1", 0.10)],  # below threshold
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
-            doc_store_size=50,  # force "large corpus" path
+            doc_store_size=100,  # force "large corpus" path
         )
         result = r.retrieve("Q?")
         assert len(result.chunks) == 0

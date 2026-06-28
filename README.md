@@ -26,17 +26,15 @@ TinyRAG is a **privacy-preserving smart-home assistant** that runs entirely on a
 
 ## Current Status (June 2026)
 
-**Active phase: Phase 3 — Project Setup (laptop-first).**
-
-We are building the entire system on a Dell Inspiron 15 3520 laptop first (Ubuntu 24.04 LTS, i5-1235U, 8 GB RAM). A Raspberry Pi 5 deployment is the **final** step, after the laptop version is fully working.
+**Active phase: Phase 4 — Build (laptop-first) is complete and working end-to-end.** A working RAG system runs locally on a Dell Inspiron 15 3520 (Ubuntu 24.04 LTS, i5-1235U, 8 GB RAM) with a built-in chat UI, REST API, document upload, and 1351 passing tests. The next milestones are the evaluation harness (Phase 5) and the Raspberry Pi 5 deployment (Phase 6).
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| Phase 3 | Setup (repo, venv, llama.cpp build) | **In progress** |
-| Phase 4 | Build (ingestion, retrieval, generation, sensors, API) | Planned |
-| Phase 5 | Test (20-Q gold set + benchmarks, 3-model comparison) | Planned |
-| Phase 6 | Deploy (Raspberry Pi 5 + real DHT22/PIR sensors) | Planned (Week 9) |
-| Phase 7 | Report (capstone report + final demo) | Planned (Week 10) |
+| Phase 3 | Setup (repo, venv, llama.cpp build) | Done |
+| Phase 4 | Build (ingestion, retrieval, generation, sensors, API) | **Done** — system runs end-to-end |
+| Phase 5 | Test (20-Q gold set + benchmarks, 3-model comparison) | In progress |
+| Phase 6 | Deploy (Raspberry Pi 5 + real DHT22/PIR sensors) | Planned |
+| Phase 7 | Report (capstone report + final demo) | Planned |
 
 See [`docs/06_roadmap_v2.md`](docs/06_roadmap_v2.md) for the full 60-step plan.
 
@@ -72,6 +70,29 @@ Full breakdown: [`docs/03_architecture_v1.md`](docs/03_architecture_v1.md) (C4 m
 
 ---
 
+## Quick Demo (3 commands)
+
+If the system is already installed and built:
+
+```bash
+bash run.sh                          # starts llama-server + uvicorn (≈30 s warmup)
+# open http://127.0.0.1:8000/ in your browser → chat UI
+# open http://127.0.0.1:8000/admin    → document management UI
+# open http://127.0.0.1:8000/api/status → JSON health endpoint
+```
+
+**Verified demo questions** (in order):
+1. *"What is RAG?"* — answers from `rag.txt` (the primer we ingested).
+2. *"What is the ErP directive?"* — answers from Nest install guide p.26 (keyword rerank promotes the definition over the TOC).
+3. *"What is OpenTherm?"* — answers from p.4 + p.24 (compatibility + wiring).
+4. *"Is the Nest compatible with combi boilers?"* — answers from p.20-21.
+5. *"What is the capital of France?"* — correctly refuses with *"I don't have enough information in the provided documents."*
+
+Full demo script + 6 more questions with expected citations and talking points: [`docs/DEMO_QUESTIONS.md`](docs/DEMO_QUESTIONS.md).
+Deep-dive architecture explainer for teacher demo: [`docs/EXPLANATION.md`](docs/EXPLANATION.md).
+
+---
+
 ## Running on Laptop (current target)
 
 > ⚠️ **The Raspberry Pi 5 is not here yet.** All development is on the laptop. The architecture is portable: the same code, models, and `config.yaml` work on both — only the deployment target in config changes.
@@ -85,16 +106,24 @@ Full breakdown: [`docs/03_architecture_v1.md`](docs/03_architecture_v1.md) (C4 m
 - **Build tools:** `build-essential`, `cmake`, `git` (installed in Step 3.3)
 - **BLAS:** `libopenblas-dev`, `liblapack-dev` (installed in Step 3.3)
 
-### One-command install (planned for Step 4.x)
+### One-command install
 
 ```bash
 git clone https://github.com/marajul/tinyrag.git
 cd tinyrag
-bash setup.sh        # installs Python deps + builds llama.cpp + downloads models
-bash run.sh          # starts FastAPI on http://localhost:8000
+bash setup.sh        # installs Python deps + builds llama.cpp + downloads models (~20 min)
+bash run.sh          # starts FastAPI on http://127.0.0.1:8000 + llama-server on :8080
 ```
 
-> ⚠️ `setup.sh` and `run.sh` are written in later steps. For now, follow [`docs/06_roadmap_v2.md`](docs/06_roadmap_v2.md) step by step.
+`setup.sh` is idempotent — re-run after pulling new commits to pick up new dependencies.
+`run.sh` is also idempotent — calling it while the stack is already running is a no-op (it just reports the PIDs).
+
+### Test the install
+
+```bash
+PYTHONPATH=src pytest tests/ -q   # 1351 passed, 2 skipped (~4 min)
+curl http://127.0.0.1:8000/api/status | head -c 300
+```
 
 ---
 
@@ -115,6 +144,8 @@ tinyrag/
 │   ├── 04_database_design_v1.md  ← FAISS + SQLite + CSV
 │   ├── 05_tech_stack_v1.md       ← pinned versions
 │   ├── 06_roadmap_v2.md          ← 60-step plan (canonical)
+│   ├── EXPLANATION.md            ← teacher-demo architecture deep-dive
+│   ├── DEMO_QUESTIONS.md         ← teacher-demo verified Q&A run-sheet
 │   └── evaluation/
 │       ├── gold_set.md           ← 20 evaluation questions
 │       └── scoring_rubric.md     ← human-judgment rubric
@@ -139,7 +170,11 @@ tinyrag/
 4. [`docs/03_architecture_v1.md`](docs/03_architecture_v1.md) — how it's built
 5. [`docs/06_roadmap_v2.md`](docs/06_roadmap_v2.md) — when & how
 
-**For evaluators / advisors:** scope + SRS are enough.
+**For the teacher demo / capstone presentation:**
+- [`docs/EXPLANATION.md`](docs/EXPLANATION.md) — architecture deep-dive with diagrams, engineering-decision rationale, anticipated Q&A.
+- [`docs/DEMO_QUESTIONS.md`](docs/DEMO_QUESTIONS.md) — verified demo questions with expected citations + FAQ cheat-sheet.
+
+**For evaluators / advisors:** scope + SRS + EXPLANATION are enough.
 **For new developers:** AGENT.md + architecture + roadmap.
 **For contributors:** see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 

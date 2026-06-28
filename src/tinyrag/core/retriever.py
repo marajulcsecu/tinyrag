@@ -85,8 +85,8 @@ logger = logging.getLogger(__name__)
 #: For small corpora (≤ :data:`SMALL_CORPUS_MAX_CHUNKS` chunks), this
 #: absolute threshold is too aggressive — MiniLM-L6-v2 produces raw
 #: scores in the 0.04–0.15 range for almost every short query against
-#: a tiny corpus (the embedding is dominated by common-word noise
-#: rather than topical signal). The retriever's :meth:`retrieve`
+#: a tiny or mixed corpus (the embedding is dominated by common-word
+#: noise rather than topical signal). The retriever's :meth:`retrieve`
 #: detects this case and substitutes :data:`SMALL_CORPUS_THRESHOLD`
 #: so user-uploaded chunks don't get silently dropped.
 DEFAULT_THRESHOLD = 0.3
@@ -102,15 +102,27 @@ DEFAULT_THRESHOLD = 0.3
 SMALL_CORPUS_THRESHOLD = 0.0
 
 #: Doc-store size at which the small-corpus fallback activates.
-#: Empirically: at ≤ 10 chunks, an absolute similarity threshold is
-#: unreliable because (a) scores are noisy and (b) the user almost
-#: certainly uploaded every chunk intentionally, so dropping any
-#: of them on a similarity basis is surprising.
-SMALL_CORPUS_MAX_CHUNKS = 10
+#: Empirically: at ≤ 50 chunks, an absolute similarity threshold is
+#: unreliable because (a) scores are noisy at small scale and (b)
+#: the user almost certainly uploaded every chunk intentionally, so
+#: dropping any of them on a similarity basis is surprising. This
+#: covers the "demo + small corpus" use case — a user with 1 manual
+#: + 1 PDF typically lands at 5–50 total chunks. Production corpora
+#: (1000+ chunks) are well above this cutoff, so the strict
+#: :data:`DEFAULT_THRESHOLD` still applies there.
+SMALL_CORPUS_MAX_CHUNKS = 50
 
-#: Default k for the document index. Matches the architecture doc's
-#: worked example.
-DEFAULT_K_DOC = 3
+#: Default k for the document index. 5 is the empirical sweet spot
+#: for a small mixed corpus (≤ ~50 chunks): with k=3, a single noisy
+#: long chunk from one document can crowd out a short relevant chunk
+#: from another (e.g. a 1-chunk rag.txt definition beaten by 3 chunks
+#: of a 38-page Nest PDF on a "What is RAG?" query). Bump to 5 so
+#: cross-document questions have a chance to surface a chunk from
+#: every uploaded doc. For larger corpora, scale with
+#: k_doc_top_k ≈ log10(num_chunks). Mirrors the ``retrieval.doc_top_k``
+#: value in ``config.yaml`` and the ``k_doc`` field default in
+#: :class:`tinyrag.api.schemas.AskRequest`.
+DEFAULT_K_DOC = 5
 
 #: Default k for the sensor index. Matches the architecture doc's
 #: worked example.
@@ -437,8 +449,16 @@ class Retriever:
         query_vector = query_vectors[0]
 
         # 3. Doc index search.
+        # We over-fetch by RERANK_FETCH_MULTIPLIER so the keyword-
+        # overlap rerank (step 6.5) has candidates beyond the top-k
+        # to work with. Without this, a chunk that ranks #18 on
+        # dense similarity but has a strong lexical match for the
+        # query (e.g. the ErP content chunk vs the ErP TOC chunk)
+        # never sees the rerank and never gets promoted. The
+        # multiplier is bounded so we don't blow the context budget.
+        rerank_fetch = max(k_doc * 5, k_doc + 10)
         try:
-            doc_hits = self.doc_store.search(query_vector, k_doc)
+            doc_hits = self.doc_store.search(query_vector, rerank_fetch)
         except Exception as exc:
             raise RetrieverSearchError(
                 f"doc_store.search failed: {exc}"
@@ -491,6 +511,54 @@ class Retriever:
         # skipped — they won't appear in chunk_records.
         records_by_id = {rec.id: rec for rec in chunk_records}
 
+        # 6.5. Keyword-overlap rerank (a poor-man's BM25 booster).
+        # Dense MiniLM embeddings are noisy on short technical
+        # queries against mixed corpora (e.g. "What is the ErP
+        # directive?" — the TOC chunk that just *mentions* "ErP
+        # class 26" outscores the actual ErP content chunk). The
+        # fix is a cheap lexical bonus: extract distinctive
+        # non-stopword tokens from the query, count how many appear
+        # in each chunk's text, and add a per-hit bonus to the
+        # dense score.
+        #
+        # The boost is computed as ``BASE_PER_TERM * matches +
+        # FULL_COVERAGE_BONUS when matches == total_terms`` —
+        # i.e. a chunk that contains ALL the query's distinctive
+        # terms gets a flat bonus on top of the per-term additions,
+        # because "every query term is here" is a much stronger
+        # relevance signal than "one query term is here". Empirically
+        # this lifts the ErP content chunk from FAISS rank #18 to
+        # top-1 because the TOC chunk only matches "erp" (1 term,
+        # +0.10) while the ErP content matches both "erp" + "directive"
+        # (2 terms + coverage bonus, +0.30 total).
+        #
+        # This is NOT a full BM25 implementation — we don't do IDF
+        # weighting or document-frequency lookups. It's a deliberate
+        # trade: a small, well-defined constant that fixes the most
+        # common dense-only retrieval failure mode without taking on
+        # a new dependency.
+        query_terms = _distinctive_query_terms(query)
+        if query_terms:
+            base_per_term = 0.10
+            coverage_bonus = 0.20  # when chunk contains ALL query terms
+            for cid in ids_in_score_order:
+                if cid not in records_by_id:
+                    continue
+                rec_text = records_by_id[cid].text
+                if not rec_text:
+                    continue
+                rec_lower = rec_text.lower()
+                matches = sum(1 for t in query_terms if t in rec_lower)
+                if matches:
+                    boost = base_per_term * matches
+                    if matches == len(query_terms):
+                        boost += coverage_bonus
+                    merged[cid] = merged[cid] + boost
+            # Re-sort by the boosted scores.
+            ids_in_score_order = sorted(
+                merged.keys(), key=lambda cid: merged[cid], reverse=True
+            )
+
         # Cache document lookups (one DB round-trip per document,
         # not per chunk).
         doc_filename_cache: dict[str, str] = {}
@@ -528,6 +596,18 @@ class Retriever:
             kept_scores.append(score)
             if cid in from_sensor:
                 kept_from_sensor.add(cid)
+            # Hard cap at ``k_doc`` so the prompt builder never sees
+            # more chunks than the caller asked for. The over-fetch in
+            # step 3 (``rerank_fetch = max(k_doc * 5, k_doc + 10)``)
+            # gives the rerank more candidates to choose from, but
+            # the API contract is "k_doc hits, no more". Without this
+            # cap, a small-corpus query with permissive threshold can
+            # push 20-25 chunks into the prompt and overflow the
+            # LLM's context window (see the 4662-token bug we hit on
+            # 2026-06-28). The PromptBuilder still does its own
+            # token-budget truncation as a second line of defence.
+            if len(kept_chunks) >= k_doc:
+                break
 
         # used_sensor_idx: True iff at least one SURVIVING chunk
         # came from the sensor path. This correctly handles the
@@ -584,6 +664,56 @@ def _find_sensor_keywords(
         elif kw_lower in tokens:
             matched.append(kw)
     return sorted(matched, key=str.lower)
+
+
+# Stopwords filtered out before keyword-overlap reranking. A minimal
+# English stopword list — just the high-frequency words that show up
+# in every sentence. Keeping it small (vs. e.g. NLTK's 179-word list)
+# is a deliberate trade: the reranker uses these as a *negative*
+# filter only, so the cost of a missed stopword is at most one
+# spurious +0.10 boost. A bigger list would slow tokenisation without
+# changing retrieval outcomes on a 50-chunk corpus.
+_RERANK_STOPWORDS: frozenset[str] = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "do", "for",
+    "from", "has", "have", "how", "i", "in", "is", "it", "its", "me",
+    "my", "of", "on", "or", "so", "such", "than", "that", "the",
+    "their", "then", "there", "this", "to", "was", "we", "what",
+    "when", "where", "which", "who", "why", "with", "you", "your",
+    "does", "did", "do", "can", "could", "would", "should", "will",
+    "shall", "may", "might", "must",
+})
+
+
+def _distinctive_query_terms(query: str) -> list[str]:
+    """Extract the lowercased, stopword-filtered tokens from ``query``.
+
+    Used by the keyword-overlap rerank step (see
+    :meth:`Retriever.retrieve`). Returns an empty list when the
+    query has no distinctive terms (e.g. just stopwords).
+
+    Tokens are whole-word alphabetic runs (so "OpenTherm" stays
+    one token, "non-blocking" splits on the hyphen). Length ≥ 3
+    so we skip 1-2 letter words like "I", "a" defensively even if
+    they slipped past the stopword list.
+    """
+    if not query:
+        return []
+    tokens: list[str] = []
+    for m in _KEYWORD_BOUNDARY_RE.finditer(query):
+        word = m.group(1).lower()
+        if len(word) >= 3 and word not in _RERANK_STOPWORDS:
+            tokens.append(word)
+    # Dedupe while preserving first-seen order (deterministic for
+    # tests). Returned list is used for substring matching against
+    # chunk text, not scoring, so order doesn't matter for the
+    # algorithm — only for test reproducibility.
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in tokens:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
 
 
 def _record_to_chunk(record: ChunkRecord, *, source: str) -> Chunk:

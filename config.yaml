@@ -130,7 +130,15 @@ retrieval:
   sensor_index_path: data/vector_store/sensor.faiss
 
   # How many document chunks to retrieve for a query.
-  doc_top_k: 3
+  # 5 is the empirical sweet spot for a small mixed corpus
+  # (≤ ~50 chunks). With k=3, a single noisy long chunk from one
+  # document can crowd out a short relevant chunk from another
+  # (e.g. a 1-chunk rag.txt definition beaten by 3 chunks of a
+  # 38-page Nest PDF on a "What is RAG?" query). Bump to 5 so
+  # cross-document questions have a chance to surface a chunk
+  # from every uploaded doc. For larger corpora, scale this
+  # with k_doc_top_k ≈ log10(num_chunks).
+  doc_top_k: 5
 
   # How many sensor-summary chunks to retrieve for a query.
   # Sensor data is summarised into ~24h windows, so 2 windows
