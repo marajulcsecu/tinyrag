@@ -108,13 +108,24 @@ DEFAULT_RESERVED_FOR_ANSWER_TOKENS = 512
 #:   have enough information in the provided documents." makes the
 #:   refusal text a stable, parseable string (the API layer uses
 #:   it as a sentinel for the "low-confidence" answer path).
+#: - "ONLY cite numbers that actually appear in the context" stops
+#:   Phi-3 from hallucinating citation slots [2], [3], ... [25]
+#:   to fill out a numbered list when only [1] was provided. This
+#:   was a real failure mode observed on a 1-chunk corpus where
+#:   the model invented 25 generic smart-home facts to pad the
+#:   citation list.
+#: - "Use complete sentences" discourages the model from producing
+#:   the stream-of-facts format that reads as broken in the UI.
 DEFAULT_SYSTEM_PROMPT = (
     "You are a helpful assistant for a smart-home owner. "
-    "Answer ONLY using information from the numbered context blocks "
-    "below. If the answer is not in the context, reply exactly: "
-    "I don't have enough information in the provided documents. "
-    "Cite the source of every claim using the bracketed numbers, e.g. "
-    "'The thermostat resets via the menu [1]'."
+    "Answer the user's question using ONLY information from the "
+    "numbered context blocks below. Use complete sentences. "
+    "If the context blocks do not contain the answer, reply "
+    "exactly: I don't have enough information in the provided "
+    "documents. When you use information from a context block, "
+    "cite it by its bracketed number — but ONLY cite numbers "
+    "that actually appear in the context. Do not invent extra "
+    "citation slots."
 )
 
 #: The user-message template. ``{question}`` is replaced with the
