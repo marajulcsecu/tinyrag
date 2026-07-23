@@ -1329,6 +1329,50 @@ class TestQueryStreaming:
         assert done_payload["model_name"], "model_name must be non-empty"
         assert done_payload["duration_total_ms"] >= 0
 
+    def test_stream_emits_status_frame_before_tokens(
+        self, client: Any
+    ) -> None:
+        """``?stream=true`` yields a ``status`` frame first, before tokens.
+
+        The status frame drives the UI "thinking" indicator during the
+        LLM prefill. It must arrive before the first ``token`` frame and
+        carry the retrieval counts (``n_chunks``/``n_sources``) so the
+        client can render "Found N sources · generating answer".
+        """
+        with client.stream(
+            "POST",
+            "/api/query?stream=true",
+            json={"query": "what about the thermostat?", "max_tokens": 16},
+        ) as r:
+            assert r.status_code == 200
+            body = r.read().decode("utf-8")
+
+        events = _parse_sse_events(body)
+        assert events, "no SSE events yielded"
+
+        # Exactly one status frame, and it precedes every token frame.
+        status_events = [e for e in events if e["event"] == "status"]
+        assert len(status_events) == 1, (
+            f"expected exactly one status event, got {len(status_events)}"
+        )
+        event_names = [e["event"] for e in events]
+        first_token_idx = event_names.index("token")
+        assert event_names.index("status") < first_token_idx, (
+            "status frame must arrive before the first token frame"
+        )
+
+        # Payload shape: counts + source list + sensor flag.
+        payload = status_events[0]["payload"]
+        assert payload["stage"] == "generating"
+        assert isinstance(payload["n_chunks"], int)
+        assert isinstance(payload["n_sources"], int)
+        assert payload["n_sources"] >= 1, "thermostat query should hit sources"
+        assert isinstance(payload["sources"], list)
+        # Distinct filenames, so the source count matches the list length.
+        assert len(payload["sources"]) == payload["n_sources"]
+        assert len(set(payload["sources"])) == len(payload["sources"])
+        assert isinstance(payload["used_sensor"], bool)
+
     def test_stream_false_returns_json_blob_not_sse(self, client: Any) -> None:
         """No ``?stream=true`` → still the existing single JSON blob.
 

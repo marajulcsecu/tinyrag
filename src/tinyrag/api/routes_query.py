@@ -490,6 +490,13 @@ def _stream_answer(
     Wire format (encoded by ``sse-starlette`` — each yielded dict
     becomes one ``ServerSentEvent``):
 
+    - ``{"event": "status", "data": "<JSON of {'stage': 'generating',
+      'n_chunks': N, 'n_sources': M, 'sources': [...], 'used_sensor':
+      bool}>"}`` — a SINGLE frame emitted immediately (before the LLM
+      prefill blocks), so the UI can show "Found N sources · generating
+      answer…" instead of a frozen-looking empty bubble during the
+      15-25s CPU prefill. Retrieval already finished before this
+      generator was called, so the counts are final.
     - ``{"event": "token", "data": "<JSON of {'delta': '<tok>'}>"}``
       — one per LLM token.
     - ``{"event": "done", "data": "<JSON of {'answer': {...}}>"}`` —
@@ -536,6 +543,31 @@ def _stream_answer(
     # space-separated string, no buffering extras).
     full_text_parts: list[str] = []
     completion_tokens = 0
+
+    # ---- Status frame (instant) -------------------------------------
+    # Retrieval already ran before this generator was invoked, so the
+    # chunk/source counts are final. Emitting this first frame flushes
+    # immediately, giving the UI something to show during the LLM
+    # prefill (the 15-25s CPU wait before token #1) so the bubble
+    # doesn't look frozen. Distinct source filenames, preserving
+    # retrieval rank order (dict.fromkeys dedupes while keeping order).
+    _sources = list(
+        dict.fromkeys(
+            getattr(c, "source", None)
+            for c in retrieval.chunks
+            if getattr(c, "source", None)
+        )
+    )
+    yield _frame(
+        "status",
+        {
+            "stage": "generating",
+            "n_chunks": len(retrieval),
+            "n_sources": len(_sources),
+            "sources": _sources,
+            "used_sensor": bool(retrieval.used_sensor_idx),
+        },
+    )
 
     t_llm_start = time.monotonic()
     try:

@@ -171,6 +171,56 @@ body {
     font-size: 13px;
 }
 
+/* ---- Thinking indicator (shown during LLM prefill) ---- */
+/* Lives inside an assistant bubble from the moment the query is sent
+   until the first streamed token arrives (see chat.js
+   appendAssistantPlaceholder / clearThinkingIndicator). The status
+   line reflects real pipeline stages ("Found N sources · generating
+   answer"); the dots pulse so the ~15-25s CPU prefill never looks
+   frozen. */
+.thinking {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.thinking-status {
+    color: var(--fg-mute);
+    font-size: 14px;
+}
+
+.thinking-dots {
+    display: inline-flex;
+    gap: 4px;
+}
+
+.thinking-dots span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: inline-block;
+    animation: thinking-pulse 1.4s ease-in-out infinite;
+}
+
+/* Stagger the three dots so they ripple rather than blink in unison. */
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes thinking-pulse {
+    0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+    40%           { opacity: 1;    transform: scale(1); }
+}
+
+/* Respect users who ask for reduced motion — hold the dots visible
+   instead of animating them. */
+@media (prefers-reduced-motion: reduce) {
+    .thinking-dots span {
+        animation: none;
+        opacity: 0.6;
+    }
+}
+
 .bubble strong { font-weight: 700; }
 .bubble em { font-style: italic; }
 .bubble code {

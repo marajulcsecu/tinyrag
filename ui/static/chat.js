@@ -296,15 +296,32 @@
             return;
         }
 
-        if (eventName === "token") {
+        if (eventName === "status") {
+            // Pipeline-stage update emitted before the LLM prefill.
+            // Turn the structured payload into a human status line so
+            // the thinking indicator reflects real progress (retrieval
+            // → generation) rather than a blank wait.
+            updateThinkingStatus(assistantBubble, formatStatus(payload));
+        } else if (eventName === "token") {
             if (typeof payload.delta === "string") {
+                // First token ends the "thinking" phase — drop the
+                // indicator, then append. clearThinkingIndicator is
+                // idempotent so calling it every token is harmless,
+                // but we gate on the placeholder still being present.
+                if (assistantBubble.querySelector(".thinking")) {
+                    clearThinkingIndicator(assistantBubble);
+                }
                 appendTokenToBubble(assistantBubble, payload.delta);
             }
         } else if (eventName === "done") {
-            // payload.answer is the full Answer.to_dict() dict from
-            // src/tinyrag/core/answer.py.
+            // Clear the indicator in case the stream produced zero
+            // tokens (e.g. an empty answer) so we never leave pulsing
+            // dots behind. payload.answer is the full Answer.to_dict()
+            // dict from src/tinyrag/core/answer.py.
+            clearThinkingIndicator(assistantBubble);
             renderDonePayload(assistantBubble, payload.answer || payload);
         } else if (eventName === "error") {
+            clearThinkingIndicator(assistantBubble);
             const msg = payload.error || payload.detail || "unknown error";
             renderErrorBubble(assistantBubble, msg);
         } else {
@@ -335,9 +352,13 @@
     }
 
     /**
-     * Append a left-aligned empty assistant bubble that the streamer
-     * will fill in. We remember the dataset.state so the SSE handler
-     * can know whether the stream is still open.
+     * Append a left-aligned assistant bubble that the streamer will
+     * fill in. Starts with an animated "thinking" indicator (a status
+     * line + pulsing dots) so the ~15-25s LLM prefill doesn't look
+     * frozen. The indicator is replaced by the first streamed token
+     * (see clearThinkingIndicator) and any status frame updates its
+     * text (see updateThinkingStatus). We remember dataset.state so
+     * the SSE handler knows whether the stream is still open.
      */
     function appendAssistantPlaceholder() {
         const wrap = document.createElement("div");
@@ -345,7 +366,22 @@
         const bubble = document.createElement("div");
         bubble.className = "bubble assistant-text";
         bubble.dataset.state = "streaming";
-        bubble.textContent = ""; // empty until first token arrives
+
+        // Thinking indicator: a status line + three pulsing dots. Held
+        // in one container so clearThinkingIndicator can remove it
+        // wholesale when the first token lands.
+        const thinking = document.createElement("div");
+        thinking.className = "thinking";
+        const statusLine = document.createElement("span");
+        statusLine.className = "thinking-status";
+        statusLine.textContent = "Searching your documents";
+        const dots = document.createElement("span");
+        dots.className = "thinking-dots";
+        dots.innerHTML = "<span></span><span></span><span></span>";
+        thinking.appendChild(statusLine);
+        thinking.appendChild(dots);
+        bubble.appendChild(thinking);
+
         wrap.appendChild(bubble);
         messagesEl.appendChild(wrap);
         scrollToBottom();
@@ -353,9 +389,55 @@
     }
 
     /**
+     * Update the thinking indicator's status line from a `status` SSE
+     * frame. No-op if the indicator was already cleared (e.g. a token
+     * raced ahead). Keeps the pulsing dots; only swaps the text.
+     */
+    function updateThinkingStatus(bubble, text) {
+        const statusLine = bubble.querySelector(".thinking .thinking-status");
+        if (statusLine) {
+            statusLine.textContent = text;
+            scrollToBottom();
+        }
+    }
+
+    /**
+     * Remove the thinking indicator. Called exactly once, when the
+     * first token arrives — from then on the bubble holds streamed
+     * text. Idempotent: safe to call when no indicator is present.
+     */
+    function clearThinkingIndicator(bubble) {
+        const thinking = bubble.querySelector(".thinking");
+        if (thinking) {
+            thinking.remove();
+        }
+    }
+
+    /**
      * Append one token of streamed text to an assistant bubble.
      * textContent assignment per token is fine for the volumes we
      * see (≤ a few hundred tokens per answer). If profiling shows
+     * Turn a `status` SSE payload into a human-readable status line.
+     * The backend sends {stage, n_chunks, n_sources, sources,
+     * used_sensor}. We describe what the pipeline found and that it's
+     * now generating — real progress, not a fake spinner. Defensive
+     * about missing fields so a future payload shape can't throw.
+     */
+    function formatStatus(payload) {
+        const n = Number(payload && payload.n_sources) || 0;
+        if (n <= 0) {
+            // Retriever found nothing above threshold — the LLM will
+            // say it can't answer. Still show we're working.
+            return "Generating answer";
+        }
+        const noun = n === 1 ? "source" : "sources";
+        const kind = payload.used_sensor ? "document & sensor " : "";
+        return `Found ${n} ${kind}${noun} · generating answer`;
+    }
+
+    /**
+     * Append a streamed token to the bubble. textContent += keeps
+     * HTML inert (no injection from model output); if this ever causes
      * jank we can switch to a text node + appendChild deltas.
      */
     function appendTokenToBubble(bubble, delta) {
