@@ -54,12 +54,19 @@ server:
   port: 8000
 
 llm:
-  # The on-disk GGUF model that llama-server will load. The default
-  # is phi-3-mini (the primary model). To swap, just change this key
-  # — no code change needed (FR-33). Available ids (see
+  # The on-disk GGUF model that llama-server will load. To swap, just
+  # change this key — no code change needed (FR-33). Available ids (see
   # src/tinyrag/models/registry.py): phi-3-mini, tinyllama-1.1b,
   # llama-3.2-3b, mistral-7b.
-  model_path: models/phi-3-mini.gguf
+  #
+  # Was phi-3-mini. Switched to llama-3.2-3b on 2026-07-23: the
+  # phi-3-mini GGUF emits garbage tokens for prompts >~2048 tokens
+  # (broken sliding-window/rope path in that GGUF), which is fatal for
+  # RAG prompts that routinely run 2500-3600 tokens. llama-3.2-3b is
+  # coherent at the same sizes on the identical llama-server binary
+  # (verified needle retrieval at 3031 tokens). Keep in sync with
+  # run.sh's LLM_GGUF default and LLMSettings.model_path.
+  model_path: models/llama-3.2-3b.gguf
 
   # llama-server OpenAI-compatible endpoint.
   # The Phase 3 smoke test (`make smoke-e2e`) hits this URL.

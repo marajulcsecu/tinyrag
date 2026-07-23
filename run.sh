@@ -100,7 +100,7 @@ readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # without touching the real install. Defaults match setup.sh + the
 # Makefile so the out-of-the-box experience is "just works".
 readonly LLAMACPP_BIN="${LLAMACPP_BIN:-${REPO_ROOT}/llama.cpp/build/bin/llama-server}"
-readonly LLM_GGUF="${LLM_GGUF:-${REPO_ROOT}/models/phi-3-mini.gguf}"
+readonly LLM_GGUF="${LLM_GGUF:-${REPO_ROOT}/models/llama-3.2-3b.gguf}"
 readonly LLM_HOST="${LLM_HOST:-127.0.0.1}"
 readonly LLM_PORT="${LLM_PORT:-8080}"
 readonly API_HOST="${API_HOST:-127.0.0.1}"

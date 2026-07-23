@@ -64,15 +64,27 @@ htmlcov/
 # ----------------------------------------------------------------------------
 # These are the large / generated / user-specific dirs defined in
 # docs/04_database_design_v1.md §8 and docs/06_roadmap_v2.md Step 3.1.
-models/                     # downloaded GGUF weights (large, license-restricted)
-data/documents/             # uploaded user PDFs/MD (user-private)
-data/sensor_logs/           # raw + processed sensor CSVs (user-private)
-data/vector_store/          # FAISS index files (regenerable from data/documents)
-data/eval_logs/             # per-question eval logs from scripts/eval.py
-data/metadata.db            # SQLite metadata DB
-logs/                       # structured JSON logs from structlog
-reports/                    # generated CSV / PDF reports (regenerable)
-!reports/.gitkeep           # but keep the empty dir in git
+# NOTE: .gitignore has NO inline comments — a '#' is only a comment at the
+# START of a line. Keep every pattern on its own line, comments above it.
+
+# downloaded GGUF weights (large, license-restricted)
+models/
+# uploaded user PDFs/MD (user-private)
+data/documents/
+# raw + processed sensor CSVs (user-private)
+data/sensor_logs/
+# FAISS index files (regenerable from data/documents)
+data/vector_store/
+# per-question eval logs from scripts/eval.py
+data/eval_logs/
+# SQLite metadata DB
+data/metadata.db
+# structured JSON logs from structlog
+logs/
+# generated CSV / PDF reports (regenerable)
+reports/
+# but keep the empty dir in git
+!reports/.gitkeep
 
 # ----------------------------------------------------------------------------
 # 3. Environment & secrets
@@ -85,20 +97,24 @@ reports/                    # generated CSV / PDF reports (regenerable)
 *.pem
 *.key
 secrets/
-config.local.yaml           # local config overrides
+# local config overrides
+config.local.yaml
 
 # Allow-list (overrides the rules above).
 # Use the FULL pattern to negate — wildcards in negation patterns don't
 # work the way you'd expect in older git versions.
-!.env.example               # template IS tracked (committed)
-!.env.template              # alternate name, also tracked
+# template IS tracked (committed)
+!.env.example
+# alternate name, also tracked
+!.env.template
 
 # ----------------------------------------------------------------------------
 # 4. IDE / editor
 # ----------------------------------------------------------------------------
 .idea/
 .vscode/
-!.vscode/settings.json      # allow shared settings
+# allow shared settings
+!.vscode/settings.json
 !.vscode/extensions.json
 *.swp
 *.swo

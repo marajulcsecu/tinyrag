@@ -221,6 +221,7 @@ class TestSkeletonIsolated:
             "import pydantic",
             "import yaml",
             "import pdfplumber",
+            "import fitz",
         )
         for token in banned:
             assert token not in text, (

@@ -237,7 +237,16 @@ class LLMSettings(BaseModel):
     )
 
     model_path: str = Field(
-        default="models/phi-3-mini.gguf",
+        # Was ``models/phi-3-mini.gguf``. Switched to llama-3.2-3b on
+        # 2026-07-23: the Phi-3-mini GGUF emits garbage tokens for
+        # prompts >~2048 tokens (its sliding-window/rope path is broken
+        # in this GGUF), which is fatal for RAG prompts that routinely
+        # run 2500-3600 tokens. llama-3.2-3b produces coherent output at
+        # the same prompt sizes on the identical llama-server binary
+        # (verified needle retrieval at 3031 tokens). See the
+        # tinyrag-llamacpp-longctx-garbage finding. Keep this in sync
+        # with run.sh's LLM_GGUF default.
+        default="models/llama-3.2-3b.gguf",
         description=(
             "On-disk GGUF path (relative to project root). Must match a "
             "model id in `src/tinyrag/models/registry.py`."

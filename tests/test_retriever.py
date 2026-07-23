@@ -65,6 +65,7 @@ from tinyrag.core import (
     DEFAULT_K_SENSOR,
     DEFAULT_SENSOR_KEYWORDS,
     DEFAULT_THRESHOLD,
+    SMALL_CORPUS_MAX_CHUNKS,
     Chunk,
     MetadataAccessor,
     PromptBuilder,
@@ -74,7 +75,6 @@ from tinyrag.core import (
     RetrieverError,
     RetrieverMetadataError,
     RetrieverSearchError,
-    SMALL_CORPUS_MAX_CHUNKS,
 )
 from tinyrag.ingestion.embedder import FakeEmbedder
 from tinyrag.storage.metadata import ChunkRecord, MetadataStore
@@ -535,16 +535,21 @@ class TestRetrieveThreshold:
 
 class TestSmallCorpusFallback:
     """When doc_store.size() <= SMALL_CORPUS_MAX_CHUNKS, the threshold
-    is overridden to SMALL_CORPUS_THRESHOLD (0.0) so every doc hit
-    survives."""
+    is overridden to SMALL_CORPUS_THRESHOLD (0.15) — a small relevance
+    floor that keeps genuinely-relevant short user uploads (which score
+    ~0.3+) while dropping off-topic noise (which scores <0.15). The
+    floor exists to stop the small-corpus path padding the LLM prompt
+    with irrelevant chunks (measured: a 0.0 floor produced 1480-token
+    prompts + 47 s CPU inference on a 1-chunk corpus)."""
 
-    def test_low_score_chunk_kept_when_doc_store_is_small(self) -> None:
-        """Score 0.05 is well below the production default 0.3, but
-        must survive on a 1-chunk corpus so user uploads aren't
-        silently dropped."""
+    def test_relevant_chunk_kept_when_doc_store_is_small(self) -> None:
+        """Score 0.20 is below the production default 0.3 but above the
+        small-corpus floor 0.15, so it must survive on a 1-chunk corpus
+        (this is the real "user uploaded 1 doc" case — rag.txt scores
+        0.36 for its own question)."""
         rec = _make_chunk_record("c1")
         r, _, _, _ = _build_retriever(
-            doc_hits=[("c1", 0.05)],
+            doc_hits=[("c1", 0.20)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
             # doc_store_size defaults to len(doc_hits) = 1, so the
@@ -553,6 +558,20 @@ class TestSmallCorpusFallback:
         result = r.retrieve("Q?")
         assert len(result.chunks) == 1
         assert result.chunks[0].text == rec.text
+
+    def test_noise_chunk_dropped_even_when_doc_store_is_small(self) -> None:
+        """Score 0.05 is below the small-corpus floor 0.15, so it is
+        dropped even on a 1-chunk corpus. This is the latency+grounding
+        fix: off-topic chunks (e.g. a boiler-wiring chunk scoring 0.06
+        for "What is RAG?") must not pad the prompt."""
+        rec = _make_chunk_record("c1")
+        r, _, _, _ = _build_retriever(
+            doc_hits=[("c1", 0.05)],
+            chunks_by_id={"c1": rec},
+            docs_by_id={"doc-1": _make_doc()},
+        )
+        result = r.retrieve("Q?")
+        assert len(result.chunks) == 0
 
     def test_fallback_does_not_apply_when_doc_store_is_large(self) -> None:
         """Score 0.05 must be dropped on a large corpus so we don't
@@ -569,19 +588,22 @@ class TestSmallCorpusFallback:
 
     def test_fallback_boundary_at_small_corpus_max(self) -> None:
         """At exactly SMALL_CORPUS_MAX_CHUNKS chunks, the fallback
-        still applies (uses <=). One more chunk turns it off."""
+        still applies (uses <=). One more chunk turns it off. A chunk
+        scoring 0.20 (> the 0.15 floor) is used to exercise the
+        boundary without also tripping the relevance filter."""
         rec = _make_chunk_record("c1")
         # Exactly at the boundary: fallback ON.
         r_on, _, _, _ = _build_retriever(
-            doc_hits=[("c1", 0.02)],
+            doc_hits=[("c1", 0.20)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
             doc_store_size=SMALL_CORPUS_MAX_CHUNKS,
         )
         assert len(r_on.retrieve("Q?").chunks) == 1
-        # One above the boundary: fallback OFF.
+        # One above the boundary: fallback OFF (production 0.3 applies,
+        # so a 0.20 chunk is now dropped).
         r_off, _, _, _ = _build_retriever(
-            doc_hits=[("c1", 0.02)],
+            doc_hits=[("c1", 0.20)],
             chunks_by_id={"c1": rec},
             docs_by_id={"doc-1": _make_doc()},
             doc_store_size=SMALL_CORPUS_MAX_CHUNKS + 1,
@@ -703,11 +725,13 @@ class TestKeywordOverlapRerank:
 
     def test_rerank_no_match_leaves_order_unchanged(self) -> None:
         """When no distinctive query terms appear in any chunk, the
-        rerank is a no-op — original dense order is preserved."""
+        rerank is a no-op — original dense order is preserved. Both
+        chunks score above the small-corpus floor (0.15) so both
+        survive."""
         rec_high = _make_chunk_record("a", text="random prose about weather")
         rec_low = _make_chunk_record("b", text="other prose about food")
         r, _, _, _ = _build_retriever(
-            doc_hits=[("a", 0.20), ("b", 0.10)],
+            doc_hits=[("a", 0.30), ("b", 0.20)],
             chunks_by_id={"a": rec_high, "b": rec_low},
             docs_by_id={"doc-1": _make_doc()},
             doc_store_size=1,
@@ -721,7 +745,15 @@ class TestKeywordOverlapRerank:
         """A chunk with 1 matching term gets +0.10; a chunk with ALL
         query terms gets +0.10*N + 0.20 (the coverage bonus). The
         coverage bonus is the strongest single rerank signal —
-        ``every query term is here`` is the textbook relevance case."""
+        ``every query term is here`` is the textbook relevance case.
+
+        This also demonstrates that the rerank boost is applied
+        BEFORE the small-corpus relevance floor (0.15): chunk "a"
+        starts at a raw 0.10 (below the floor) but its keyword boost
+        lifts it to 0.20 (above the floor), so a lexically-relevant
+        chunk is protected even when its dense score was low. Chunk
+        "c" matches no query term, stays at 0.10, and is correctly
+        dropped by the floor."""
         rec_one = _make_chunk_record("a", text="just directive mentioned")
         rec_two = _make_chunk_record("b", text="erp directive full")
         rec_none = _make_chunk_record("c", text="nothing relevant here")
@@ -732,15 +764,149 @@ class TestKeywordOverlapRerank:
             doc_store_size=1,
         )
         result = r.retrieve("ErP directive?")
-        # b: 0.10 + (0.10 * 2 + 0.20 coverage) = 0.50 (both terms)
-        # a: 0.10 + (0.10 * 1)             = 0.20 (1 term)
-        # c: 0.10                           = 0.10 (no terms)
+        # b: 0.10 + (0.10 * 2 + 0.20 coverage) = 0.50 (both terms) → kept
+        # a: 0.10 + (0.10 * 1)             = 0.20 (1 term)     → kept (> 0.15 floor)
+        # c: 0.10                           = 0.10 (no terms)   → DROPPED (< 0.15 floor)
+        assert len(result.chunks) == 2
         assert result.chunks[0].text == rec_two.text
         assert result.chunks[1].text == rec_one.text
-        assert result.chunks[2].text == rec_none.text
         assert result.scores[0] == pytest.approx(0.50)
         assert result.scores[1] == pytest.approx(0.20)
-        assert result.scores[2] == pytest.approx(0.10)
+
+
+    def test_rerank_matches_whole_words_not_substrings(self) -> None:
+        """The rerank must match query terms as WHOLE WORDS, not
+        substrings. Regression guard for the 2026-07-22 bug where the
+        query "What is RAG?" (single term "rag") spuriously boosted a
+        chunk containing "storage" and "coverage" — because a naive
+        ``"rag" in chunk_text.lower()`` counted those as hits and then
+        piled the +0.20 full-coverage bonus on top (dense 0.05 + 0.10
+        + 0.20 = 0.35), shoving an irrelevant chunk above the real
+        answer.
+
+        Here chunk "b" (the real answer) contains the whole word "rag"
+        and must win; chunk "a" only contains "rag" inside
+        "storage"/"coverage" and must get ZERO boost, so its higher
+        dense score does NOT save it from being outranked."""
+        rec_noise = _make_chunk_record(
+            "a", text="warranty storage and coverage terms"
+        )
+        rec_answer = _make_chunk_record(
+            "b", text="rag stands for retrieval augmented generation"
+        )
+        r, _, _, _ = _build_retriever(
+            doc_hits=[("a", 0.30), ("b", 0.10)],
+            chunks_by_id={"a": rec_noise, "b": rec_answer},
+            docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=1,
+        )
+        result = r.retrieve("What is RAG?")
+        # a: 0.30 + 0.0 (no WHOLE-WORD "rag")      = 0.30
+        # b: 0.10 + 0.10 + 0.20 coverage (1 term)  = 0.40 → wins
+        assert result.chunks[0].text == rec_answer.text
+        assert result.scores[0] == pytest.approx(0.40)
+        assert result.scores[1] == pytest.approx(0.30)
+
+    def test_small_corpus_overfetch_covers_whole_store(self) -> None:
+        """On a small corpus the rerank fetch must widen to the whole
+        doc store, so a keyword-strong / dense-weak chunk that ranks
+        below the default fetch window (max(k*5, k+10)=25) still enters
+        the rerank pool. Regression guard for the 2026-07-22 warranty
+        bug: the answer chunk ("...for a period of two (2) years")
+        ranked 33/42 on dense score, below the fetch of 25, so the
+        rerank never saw it and the query wrongly refused.
+
+        We assert both the OBSERVABLE outcome (the deep answer chunk is
+        retrieved and reranked to the top) and the mechanism (the doc
+        store was searched with k == store size, not the default 25)."""
+        # 30-chunk store: 29 filler chunks with high-ish dense scores
+        # but NO query-term match, then the real answer at the very
+        # bottom on dense score but a full keyword match.
+        filler = [(f"f{i}", 0.20 - i * 0.001) for i in range(29)]
+        answer = [("ans", -0.05)]  # dense rank 30/30, below the 25 fetch
+        doc_hits = filler + answer
+        chunks = {
+            f"f{i}": _make_chunk_record(f"f{i}", text="unrelated filler prose")
+            for i in range(29)
+        }
+        chunks["ans"] = _make_chunk_record(
+            "ans", text="the warranty period is two years"
+        )
+        r, doc_store, _, _ = _build_retriever(
+            doc_hits=doc_hits,
+            chunks_by_id=chunks,
+            docs_by_id={"doc-1": _make_doc()},
+            doc_store_size=30,
+        )
+        result = r.retrieve("What is the warranty period?")
+        # Mechanism: the store was searched with k >= store size (30),
+        # not the default rerank_fetch of 25.
+        assert doc_store.last_k >= 30
+        # Outcome: "warranty" + "period" both whole-word match the
+        # answer chunk → -0.05 + 0.10*2 + 0.20 coverage = 0.35, which
+        # clears the 0.15 floor and outranks every filler chunk.
+        assert result.chunks[0].text == "the warranty period is two years"
+        assert result.scores[0] == pytest.approx(0.35)
+
+    def test_sensor_overfetch_covers_whole_sensor_store(self) -> None:
+        """The sensor search must fetch the whole sensor store, not just
+        k_sensor, so the whole-word rerank can rescue the correct daily
+        summary. Regression guard for the 2026-07-22 sensor bug: sensor
+        summaries embed near-identically (same sentence shape, only the
+        date/number differ), so the correct chunk for a specific date
+        scores ~0.05 on dense similarity and sits far below k_sensor=2
+        of 180 chunks — it never entered ``merged`` and the query
+        wrongly refused. Widening the fetch to the whole store lets the
+        lexical rerank (exact date token match → coverage bonus) lift it
+        into the kept set.
+
+        We assert both the mechanism (the sensor store was searched with
+        k == store size, not the default k_sensor) and the outcome (the
+        correct-date chunk is retrieved from the sensor path and its
+        boosted score clears the floor)."""
+        # 30 near-identical sensor summaries. All have low, tightly
+        # clustered dense scores; only the query's exact date appears in
+        # ONE of them, so only that chunk gets the full whole-word match.
+        sensor_hits = [(f"s{i}", 0.05 - i * 0.0005) for i in range(30)]
+        # The correct chunk is deep on dense rank (last), far below a
+        # k_sensor=2 fetch.
+        chunks = {
+            f"s{i}": _make_chunk_record(
+                f"s{i}",
+                document_id="sensor-doc",
+                text=f"On 2026-06-{i + 1:02d}, the bedroom temperature "
+                     f"averaged 20.2 C.",
+                page_number=None,
+            )
+            for i in range(30)
+        }
+        # Point the query at the LAST chunk's date (2026-06-30 → i=29).
+        r, _, sensor_store, _ = _build_retriever(
+            doc_hits=[("c1", 0.10)],
+            sensor_hits=sensor_hits,
+            chunks_by_id={
+                "c1": _make_chunk_record("c1", text="unrelated doc prose"),
+                **chunks,
+            },
+            docs_by_id={
+                "doc-1": _make_doc("Nest.pdf"),
+                "sensor-doc": _make_doc("sensor-summary.md"),
+            },
+            doc_store_size=42,  # doc corpus small but sensor path is what we test
+        )
+        result = r.retrieve(
+            "What was the bedroom temperature on 2026-06-30?"
+        )
+        # Mechanism: the sensor store was searched with k >= its size
+        # (30), not the default k_sensor (2).
+        assert sensor_store.last_k >= 30
+        # Outcome: the exact-date chunk is retrieved (it would have been
+        # invisible under a k_sensor=2 fetch) and came from the sensor
+        # path. "bedroom"+"temperature"+"2026-06-30" all whole-word match
+        # → strong boost lifts it to the top of the kept set.
+        assert result.used_sensor_idx is True
+        assert result.chunks[0].text.startswith("On 2026-06-30")
+
 
 
 # ---------------------------------------------------------------------------

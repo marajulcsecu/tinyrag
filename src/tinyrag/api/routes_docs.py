@@ -321,7 +321,17 @@ def build_docs_router() -> APIRouter:
                 path=tmp_path,
                 settings=settings,
                 doc_type=doc_type,
-                embedder_kind="fake",  # Step 4.18 default; Step 4.22 may override
+                # REAL embeddings. This route previously hardcoded
+                # "fake" (a stale Step 4.18 default) which embedded
+                # every uploaded doc with SHA-256 hashes — semantically
+                # meaningless — so retrieval fell back entirely to the
+                # lexical rerank and paraphrase queries silently failed
+                # (see the 2026-07-22 embedder-fake-corpus finding).
+                # NOTE (perf follow-up): run_ingest builds its own
+                # embedder, so this loads MiniLM separately from the
+                # app's query singleton. Fine for an infrequent admin
+                # upload; a future refactor could inject the singleton.
+                embedder_kind="real",
                 db_path_override=None,
                 index_path_override=None,
             )

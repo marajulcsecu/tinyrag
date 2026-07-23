@@ -18,7 +18,11 @@
 #                     Skipped if apt-get is not available (e.g. macOS).
 #   3. install-dev    `make install-dev` — create venv + install runtime
 #                     + dev/test deps from requirements*.txt.
-#                     Skipped if the venv already exists at $VENV.
+#                     Skipped if the venv exists at $VENV AND sentinel
+#                     packages (uvicorn, fastapi, sentence_transformers,
+#                     structlog) are importable. If the venv exists but
+#                     deps are incomplete (e.g. a prior pip failure),
+#                     re-runs pip install against the existing venv.
 #   4. build-llamacpp `make build-llamacpp` — clone + compile llama.cpp
 #                     with OpenBLAS (~5 min cold; skipped if the binary
 #                     is already present at llama.cpp/build/bin/llama-server).
@@ -240,15 +244,50 @@ install_system_deps() {
 
 # ---- Stage 2: install-dev -------------------------------------------------
 
-# Create the venv + install runtime + dev/test deps. Skipped if the
-# venv already exists (the Makefile's `install-dev` target depends on
-# `venv`, which is itself idempotent — but we add a guard here for
-# faster + clearer logging on re-runs).
+# Create the venv + install runtime + dev/test deps. Skipped ONLY if
+# the venv already exists AND all key packages are importable.
+#
+# WHY NOT JUST CHECK [[ -d $VENV ]]?
+#   A half-installed venv (e.g. from a network failure mid-pip-install
+#   when the 797 MB torch download drops at 80%) has the directory but
+#   is missing packages. The old guard skipped it, leaving the system
+#   broken with "No module named uvicorn" at run.sh time. The fix:
+#   probe 3 sentinel packages that span the full requirements.txt
+#   (uvicorn from the server stack, sentence_transformers from the
+#   ML stack, structlog from the observability stack). If any import
+#   fails, we re-run pip install against the existing venv — this
+#   avoids recreating the venv from scratch (which would lose any
+#   packages that DID install successfully).
 install_python_deps() {
     log_section "Python virtualenv + dependencies (VENV=${VENV})"
 
     if [[ -d "${VENV}" ]]; then
-        log_skipped "Python venv already present at ${VENV}"
+        # The venv directory exists — but are the deps actually installed?
+        # Probe 3 sentinel packages that span the full requirements.txt.
+        local sentinels_ok=true
+        for pkg in uvicorn fastapi sentence_transformers structlog; do
+            if ! "${VENV}/bin/python" -c "import ${pkg}" 2>/dev/null; then
+                sentinels_ok=false
+                log_warn "Venv exists but '${pkg}' is not importable — deps are incomplete"
+                break
+            fi
+        done
+
+        if [[ "${sentinels_ok}" == "true" ]]; then
+            log_skipped "Python venv already present at ${VENV} (deps verified)"
+            return 0
+        fi
+
+        # Venv exists but deps are incomplete — re-run pip install
+        # against the existing venv (faster than recreating from scratch).
+        log_info "Re-installing deps into existing venv (prior install was incomplete)"
+        if ! make VENV="${VENV}" install-dev; then
+            log_error "make install-dev failed"
+            log_error "Check requirements.txt for drift; verify pip can reach PyPI"
+            log_error "If the venv is corrupt, delete it and re-run:  rm -rf ${VENV} && bash setup.sh"
+            exit "${EXIT_INSTALL}"
+        fi
+        log_ok "Venv deps repaired at ${VENV}"
         return 0
     fi
 

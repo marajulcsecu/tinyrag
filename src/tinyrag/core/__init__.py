@@ -70,6 +70,8 @@ from tinyrag.core.retriever import (
     DEFAULT_K_SENSOR,
     DEFAULT_SENSOR_KEYWORDS,
     DEFAULT_THRESHOLD,
+    SMALL_CORPUS_MAX_CHUNKS,
+    SMALL_CORPUS_THRESHOLD,
     MetadataAccessor,
     RetrievalResult,
     Retriever,
@@ -77,8 +79,6 @@ from tinyrag.core.retriever import (
     RetrieverError,
     RetrieverMetadataError,
     RetrieverSearchError,
-    SMALL_CORPUS_MAX_CHUNKS,
-    SMALL_CORPUS_THRESHOLD,
     adapt_metadata_store,
 )
 from tinyrag.core.sensor_summarizer import (

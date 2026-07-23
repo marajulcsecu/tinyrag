@@ -188,11 +188,13 @@ def _make_embedder(settings: Settings, *, kind: str):
         # identically regardless of which path you take.
         return FakeEmbedder(dimension=384)
     if kind == "real":
-        return SentenceTransformerEmbedder(
-            model_name=settings.embedding.model_name,
-            device=settings.embedding.device.value,
-            batch_size=settings.embedding.batch_size,
-        )
+        # The constructor takes a single EmbeddingSettings (model_name,
+        # device, batch_size, cache_dir all live there). Passing the
+        # old model_name=/device=/batch_size= kwargs raises TypeError —
+        # which is the bug that silently forced the whole corpus to be
+        # ingested with FakeEmbedder (train/serve mismatch; see the
+        # 2026-07-22 embedder-fake-corpus finding).
+        return SentenceTransformerEmbedder(settings.embedding)
     raise ValueError(f"unknown embedder kind: {kind!r}")  # pragma: no cover
 
 

@@ -84,7 +84,7 @@ logger = logging.getLogger(__name__)
 #:
 #: For small corpora (≤ :data:`SMALL_CORPUS_MAX_CHUNKS` chunks), this
 #: absolute threshold is too aggressive — MiniLM-L6-v2 produces raw
-#: scores in the 0.04–0.15 range for almost every short query against
+#: scores in the 0.04-0.15 range for almost every short query against
 #: a tiny or mixed corpus (the embedding is dominated by common-word
 #: noise rather than topical signal). The retriever's :meth:`retrieve`
 #: detects this case and substitutes :data:`SMALL_CORPUS_THRESHOLD`
@@ -92,14 +92,24 @@ logger = logging.getLogger(__name__)
 DEFAULT_THRESHOLD = 0.3
 
 #: Threshold used when the doc store has fewer than
-#: :data:`SMALL_CORPUS_MAX_CHUNKS` chunks. 0.0 means "include every
-#: chunk that has any positive similarity" — effectively "show the
-#: user everything they uploaded". The prompt builder caps the
-#: token budget, so even if this returns 5 chunks, only the ones
-#: that fit get rendered. The model itself is then responsible for
-#: saying "I don't have enough information" when none of the
-#: returned chunks answer the question.
-SMALL_CORPUS_THRESHOLD = 0.0
+#: :data:`SMALL_CORPUS_MAX_CHUNKS` chunks. Set to a small **relevance
+#: floor** (0.15) rather than 0.0: on a tiny/mixed corpus, a 0.0 floor
+#: lets every one of ``k_doc`` chunks through regardless of relevance,
+#: which (a) pads the prompt with off-topic chunks and (b) makes the
+#: LLM prefill huge and slow (measured: "What is RAG?" produced a
+#: 1480-token prompt with 4 irrelevant Nest-PDF chunks scoring
+#: 0.06-0.29, driving a 47 s CPU inference). 0.15 is well below the
+#: production :data:`DEFAULT_THRESHOLD` (0.3) so genuinely relevant
+#: short user-uploaded chunks still surface (e.g. the 1-chunk rag.txt
+#: definition scores 0.36 for "What is RAG?"), but noise chunks scoring
+#: below 0.15 are dropped — which both improves grounding and cuts
+#: latency. Verified 2026-07-22 against the 5 demo questions: the
+#: correct top chunk survives for every one (ErP p26, OpenTherm p4,
+#: warranty p27, combi p20, RAG rag.txt) while prompt size falls
+#: 20-60%. The prompt builder still caps the token budget as a second
+#: line of defence, and the LLM still refuses when no returned chunk
+#: answers the question.
+SMALL_CORPUS_THRESHOLD = 0.15
 
 #: Doc-store size at which the small-corpus fallback activates.
 #: Empirically: at ≤ 50 chunks, an absolute similarity threshold is
@@ -107,7 +117,7 @@ SMALL_CORPUS_THRESHOLD = 0.0
 #: the user almost certainly uploaded every chunk intentionally, so
 #: dropping any of them on a similarity basis is surprising. This
 #: covers the "demo + small corpus" use case — a user with 1 manual
-#: + 1 PDF typically lands at 5–50 total chunks. Production corpora
+#: + 1 PDF typically lands at 5-50 total chunks. Production corpora
 #: (1000+ chunks) are well above this cutoff, so the strict
 #: :data:`DEFAULT_THRESHOLD` still applies there.
 SMALL_CORPUS_MAX_CHUNKS = 50
@@ -457,6 +467,22 @@ class Retriever:
         # never sees the rerank and never gets promoted. The
         # multiplier is bounded so we don't blow the context budget.
         rerank_fetch = max(k_doc * 5, k_doc + 10)
+        # On a SMALL corpus, widen the rerank pool to the entire doc
+        # store. The bounded multiplier above assumes the answer sits
+        # near the top on dense score — but a keyword-strong /
+        # dense-weak chunk can fall below the fetch window and become
+        # invisible to the lexical rerank that exists precisely to
+        # rescue it. Concrete case (2026-07-22): the warranty answer
+        # chunk ("...free from defects... for a period of two (2)
+        # years") ranked 33/42 on dense score, below the fetch of 25,
+        # so "What is the warranty period?" wrongly refused. FAISS
+        # search over a few dozen vectors is trivially cheap, and the
+        # ``k_doc`` cap (step 7/8) still limits the PROMPT to k_doc
+        # chunks — only the candidate pool grows, so there is no
+        # latency cost. Gated to small corpora so large-corpus
+        # context/perf behaviour is unchanged.
+        if doc_store_size <= SMALL_CORPUS_MAX_CHUNKS:
+            rerank_fetch = max(rerank_fetch, doc_store_size)
         try:
             doc_hits = self.doc_store.search(query_vector, rerank_fetch)
         except Exception as exc:
@@ -465,10 +491,32 @@ class Retriever:
             ) from exc
 
         # 4. Sensor index search (only if keywords matched).
+        # Over-fetch sensor candidates so the whole-word rerank
+        # (step 6.5) can rescue the correct summary — same mechanism
+        # as the doc over-fetch in step 3, applied to the sensor path.
+        # Dense MiniLM embeddings CANNOT discriminate between sensor
+        # summaries that differ only by date / room / number: they are
+        # near-identical sentences ("On DATE, the ROOM MEASURE averaged
+        # X, peaking at Y..."), and the date/number carry no semantic
+        # signal. So the correct chunk for "bedroom temperature on
+        # 2026-06-20" scores only ~0.05 on dense similarity and sits
+        # deep in the ranking (well below k_sensor=2 of 180 chunks) —
+        # it never enters ``merged`` and the query wrongly refuses.
+        # The lexical rerank fixes this ("2026-06-20"/"bedroom" whole-
+        # word match lifts it to ~0.55), but ONLY if the chunk is in
+        # the candidate pool. So we fetch the whole sensor store (180
+        # vectors; a FAISS IndexFlatIP scan over that is trivially
+        # cheap) and let the rerank + threshold + k_doc cap filter it.
+        # Verified 2026-07-22: bedroom-temp 0.048→0.548 (rank #1),
+        # house-energy 0.004→0.304 (#3). The k_doc cap (step 7/8) still
+        # bounds the PROMPT, so widening the fetch adds no latency.
         sensor_hits: list[tuple[str, float]] = []
         if keywords_matched:
+            sensor_fetch = max(k_sensor, self.sensor_store.size())
             try:
-                sensor_hits = self.sensor_store.search(query_vector, k_sensor)
+                sensor_hits = self.sensor_store.search(
+                    query_vector, sensor_fetch
+                )
             except Exception as exc:
                 raise RetrieverSearchError(
                     f"sensor_store.search failed: {exc}"
@@ -547,8 +595,22 @@ class Retriever:
                 rec_text = records_by_id[cid].text
                 if not rec_text:
                     continue
-                rec_lower = rec_text.lower()
-                matches = sum(1 for t in query_terms if t in rec_lower)
+                # WHOLE-WORD matching, NOT substring. A naive
+                # ``term in rec_text.lower()`` counts "rag" inside
+                # "sto*rag*e" / "cove*rag*e" as a hit — on the query
+                # "What is RAG?" that spuriously boosted a Nest
+                # warranty chunk to rank #1 (dense 0.098 + 0.10 +
+                # 0.20 coverage = 0.398), above the real rag.txt
+                # answer (0.360). See the 2026-07-22 rerank trace.
+                # We tokenise the chunk with the same word regex used
+                # for the query terms so hyphenated tokens
+                # ("non-blocking") stay whole on both sides, then do
+                # set membership — O(chunk) once, and correct.
+                rec_words = {
+                    m.group(1).lower()
+                    for m in _KEYWORD_BOUNDARY_RE.finditer(rec_text)
+                }
+                matches = sum(1 for t in query_terms if t in rec_words)
                 if matches:
                     boost = base_per_term * matches
                     if matches == len(query_terms):
@@ -679,7 +741,7 @@ _RERANK_STOPWORDS: frozenset[str] = frozenset({
     "my", "of", "on", "or", "so", "such", "than", "that", "the",
     "their", "then", "there", "this", "to", "was", "we", "what",
     "when", "where", "which", "who", "why", "with", "you", "your",
-    "does", "did", "do", "can", "could", "would", "should", "will",
+    "does", "did", "can", "could", "would", "should", "will",
     "shall", "may", "might", "must",
 })
 

@@ -51,7 +51,7 @@ tiktoken==0.8.0                 # token counting for chunking & prompts
 # ----------------------------------------------------------------------------
 # 4. Document parsing
 # ----------------------------------------------------------------------------
-pdfplumber==0.11.4              # robust PDF text extraction
+PyMuPDF==1.24.10               # column-aware PDF text extraction (block-sorted reading order)
 
 
 # ----------------------------------------------------------------------------

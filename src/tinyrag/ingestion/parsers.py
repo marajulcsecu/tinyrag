@@ -30,14 +30,18 @@ the same pattern as ``SensorSource`` (§6.1) and ``EmbeddingModel``
 (§6.2): a ``@runtime_checkable`` Protocol with a single
 :meth:`~DocumentParser.parse` method.
 
-Why pdfplumber and not PyPDF2?
-------------------------------
-The architecture doc §15.1 settled this question: pdfplumber handles
-complex layouts (tables, multi-column, rotated text) far better than
-PyPDF2, at the cost of being slower. For TinyRAG's ≤50 MB documents
-(see FR-10 in ``docs/02_srs_v1.md``) the speed difference is
-negligible, and the quality win matters: a manual whose tables
-PyPDF2 mangles into garbled text will produce garbage chunks.
+Why PyMuPDF and not pdfplumber / PyPDF2?
+----------------------------------------
+The architecture doc §15.1 originally chose pdfplumber over PyPDF2
+for layout handling. In verification (2026-07-22) we found
+pdfplumber's default ``extract_text()`` still reads **two-column**
+pages straight across the gutter, interleaving the columns into
+scrambled sentences that embed poorly and vanish from retrieval.
+PyMuPDF's ``get_text("blocks", sort=True)`` groups text into layout
+blocks in natural reading order, keeping each column intact without
+any per-page heuristic. For TinyRAG's ≤50 MB documents (see FR-10 in
+``docs/02_srs_v1.md``) it is also faster than pdfplumber, and it
+ships aarch64 wheels for the Raspberry Pi target.
 
 Markdown handling
 -----------------
@@ -78,10 +82,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-# pdfplumber is the heaviest dependency in the ingestion path. We
-# import it lazily inside PdfParser.parse() so a Markdown-only or
+# PyMuPDF (fitz) is the heaviest dependency in the ingestion path.
+# We import it lazily inside PdfParser.parse() so a Markdown-only or
 # TXT-only project can still import this module without pulling in
-# pdfplumber's transitive deps. (TXT and Markdown are pure-stdlib.)
+# PyMuPDF's shared library. (TXT and Markdown are pure-stdlib.)
 
 # ----------------------------------------------------------------------------
 # Public exceptions
@@ -126,7 +130,7 @@ class EmptyDocumentError(ParserError):
 
 
 class PdfReadError(ParserError):
-    """pdfplumber failed to read the PDF (corrupt, encrypted, etc.).
+    """PyMuPDF failed to read the PDF (corrupt, encrypted, etc.).
 
     Caught separately from :class:`UnsupportedFormatError` because
     the file *is* a PDF (so the dispatcher was right), but the
@@ -209,7 +213,7 @@ class DocumentParser(Protocol):
 
 
 class PdfParser:
-    """Extracts text from a PDF using ``pdfplumber``.
+    """Extracts text from a PDF using ``PyMuPDF`` (``fitz``).
 
     Per FR-2 we preserve reading order and the page number for each
     text span. We do **not** attempt OCR — a scanned PDF with no
@@ -217,15 +221,33 @@ class PdfParser:
     :class:`EmptyDocumentError` (the user can OCR it themselves and
     re-upload).
 
-    pdfplumber is imported lazily so a project that only ingests
-    Markdown doesn't pay its import cost (~200 ms cold).
+    Why PyMuPDF and not pdfplumber's ``extract_text()``?
+    ----------------------------------------------------
+    pdfplumber's default ``extract_text()`` walks the page's
+    character stream in raw storage order and joins by (y, x). On a
+    **two-column** layout (like the Nest install guide) that reads
+    straight across the gutter, interleaving the left and right
+    columns into scrambled sentences — e.g. "compatible with almost
+    all central *You don't need Wi-Fi to use the* heating systems".
+    The scrambled text then embeds poorly and the correct chunk
+    drops out of retrieval entirely (verified 2026-07-22: the
+    "combi boiler compatibility" chunk ranked 29/39 and the query
+    falsely returned "I don't have enough information").
+
+    PyMuPDF's ``get_text("blocks", sort=True)`` groups text into
+    layout blocks and sorts them in natural reading order, keeping
+    each column's sentences intact. This is column-aware without any
+    per-page gutter heuristic, so it also handles PDFs we've never
+    seen. See the VERIFICATION_ROADMAP finding for VA-series.
+
+    PyMuPDF is imported lazily so a project that only ingests
+    Markdown/TXT doesn't pay its import cost.
     """
 
-    #: If a single page yields less than this many non-whitespace
-    #: characters, we treat the whole PDF as having "no extractable
-    #: text" rather than raising per-page. The threshold is generous
-    #: because pdfplumber can return one stray character per page
-    #: from metadata headers.
+    #: If the whole document yields less than this many
+    #: non-whitespace characters, we treat it as having "no
+    #: extractable text" (e.g. a scanned PDF with no OCR layer)
+    #: rather than passing an effectively-empty doc downstream.
     _MIN_TOTAL_CHARS = 10
 
     def parse(self, path: Path) -> ParsedDocument:
@@ -235,37 +257,38 @@ class PdfParser:
         ------
         ParserError
             File missing → :class:`ParserError`.
-            pdfplumber rejected it → :class:`PdfReadError`.
+            PyMuPDF rejected it → :class:`PdfReadError`.
             No extractable text → :class:`EmptyDocumentError`.
         """
         if not path.is_file():
             raise ParserError(f"PDF file not found: {path}", path=path)
 
         try:
-            import pdfplumber  # lazy import — see module docstring
+            import fitz  # PyMuPDF — lazy import, see class docstring
         except ImportError as exc:
-            # We deliberately did not add a top-level import; if the
-            # venv doesn't have pdfplumber (a slim install), the
-            # error message should name the missing package clearly.
             raise ParserError(
-                "pdfplumber is not installed; run `pip install pdfplumber`",
+                "PyMuPDF is not installed; run `pip install PyMuPDF`",
                 path=path,
             ) from exc
 
         try:
-            with pdfplumber.open(str(path)) as pdf:
+            with fitz.open(str(path)) as doc:
                 pages: list[tuple[int, str]] = []
-                # Extract page-by-page. ``extract_text()`` returns
-                # ``None`` for image-only pages (vs raising), so we
-                # coerce to "" and skip empties — but we still count
-                # the page so ``page_count`` matches the PDF's
-                # actual page count.
-                for one_based_idx, page in enumerate(pdf.pages, start=1):
-                    page_text = page.extract_text() or ""
+                for one_based_idx, page in enumerate(doc, start=1):
+                    # ``blocks`` returns layout blocks as tuples
+                    # ``(x0, y0, x1, y1, text, block_no, block_type)``.
+                    # ``sort=True`` orders them in natural reading
+                    # order (top-to-bottom, respecting columns), which
+                    # keeps each column's sentences intact instead of
+                    # reading straight across a two-column gutter.
+                    blocks = page.get_text("blocks", sort=True)
+                    page_text = "\n".join(
+                        b[4].strip() for b in blocks if b[4].strip()
+                    )
                     pages.append((one_based_idx, page_text))
-        except Exception as exc:  # pdfplumber raises many types; PDFInfoNotFoundError, etc.
+        except Exception as exc:  # PyMuPDF raises fitz.FileDataError etc.
             raise PdfReadError(
-                f"pdfplumber failed to read {path}: {exc}", path=path
+                f"PyMuPDF failed to read {path}: {exc}", path=path
             ) from exc
 
         # Join pages with form-feed so a chunker that wants to know

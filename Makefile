@@ -165,15 +165,15 @@ typecheck:  ## Run mypy (gradual typing — warnings, not errors yet)
 
 test:  ## Run the full test suite
 	@echo ">> Running pytest"
-	$(PYTEST)
+	$(PYTHON) -m pytest
 
 test-fast:  ## Run tests, skipping slow and integration markers
 	@echo ">> Running pytest (fast only)"
-	$(PYTEST) -m "not slow and not integration"
+	$(PYTHON) -m pytest -m "not slow and not integration"
 
 test-cov:  ## Run tests with coverage report
 	@echo ">> Running pytest with coverage"
-	$(PYTEST) --cov=src/tinyrag --cov-report=term-missing --cov-report=html
+	$(PYTHON) -m pytest --cov=src/tinyrag --cov-report=term-missing --cov-report=html
 
 smoke:  ## Quick sanity check: imports + Python version
 	@echo ">> Smoke test"

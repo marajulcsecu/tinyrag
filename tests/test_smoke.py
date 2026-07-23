@@ -44,7 +44,7 @@ RUNTIME_DEPS = {
     "numpy",
     "tiktoken",
     # Parsing
-    "pdfplumber",
+    "fitz",  # PyMuPDF imports as `fitz`
     # HTTP client
     "httpx",
     "sse_starlette",
