@@ -154,13 +154,13 @@ we run the real pipeline and look at the real output.
 - **Pass:** answers match the run-sheet expectations; streaming visibly works.
 - **If it fails:** flag any question that misbehaves for a targeted fix.
 
-### VE.2 — Clean teardown & idempotent ops · 🤖 · ⬜
+### VE.2 — Clean teardown & idempotent ops · 🤖 · ✅ PASS
 - **Goal:** `stop.sh` / Ctrl+C leave no orphan processes or PID files.
 - **Action:** `bash stop.sh` twice; check ports 8000/8080 free and PID files gone.
 - **Pass:** ports free, "Nothing to stop" on 2nd run, exit 0.
 - **If it fails:** signal-trap / PID-file bug in run.sh/stop.sh.
 
-### VE.3 — Sync AGENT.md with reality · 🤖 · ⬜
+### VE.3 — Sync AGENT.md with reality · 🤖 · ✅ DONE
 - **Goal:** The journal is out of date (undocumented last-6-commits drift). Fix it so the advisor sees the true state.
 - **Action:** record the retrieval/prompt/SSE fixes + this verification pass's findings into AGENT.md.
 - **Pass:** AGENT.md matches the code + config on disk.
