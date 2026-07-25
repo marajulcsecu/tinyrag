@@ -916,6 +916,8 @@ class TestPostDocuments:
     def test_upload_pdf_returns_200(self, empty_client: Any) -> None:
         # Real Nest PDF — verifies the parser dispatch for .pdf works
         # via the HTTP path (not just the CLI).
+        if not _NEST_PDF.exists():
+            pytest.skip(f"{_NEST_PDF} not present")
         pdf_bytes = _NEST_PDF.read_bytes()
         r = empty_client.post(
             "/api/documents",
