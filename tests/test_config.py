@@ -208,7 +208,7 @@ class TestLoadSettings:
         # Spot-check a field from each of the 9 sections.
         assert s.deployment.target is DeploymentTarget.LAPTOP
         assert s.server.port == 8000
-        assert s.llm.model_path == "models/phi-3-mini.gguf"
+        assert s.llm.model_path == "models/llama-3.2-3b.gguf"
         assert s.llm.temperature == 0.0
         assert s.embedding.model_name == "sentence-transformers/all-MiniLM-L6-v2"
         assert s.chunking.chunk_size == 400
@@ -242,7 +242,7 @@ class TestLoadSettings:
         s = load_settings(REAL_CONFIG_PATH)
         resolved = s.resolve(s.llm.model_path)
         assert resolved.is_absolute()
-        assert resolved == s.project_root() / "models" / "phi-3-mini.gguf"
+        assert resolved == s.project_root() / "models" / "llama-3.2-3b.gguf"
 
     def test_settings_resolve_absolute_passthrough(self) -> None:
         """Settings.resolve() leaves absolute paths alone."""
