@@ -2,6 +2,7 @@
 
 > A lightweight, fully on-device Retrieval-Augmented Generation (RAG) assistant for smart-home IoT — running on a Raspberry Pi 5, with **zero cloud calls**.
 
+![CI](https://github.com/marajulcsecu/tinyrag/actions/workflows/ci.yml/badge.svg)
 ![Status](https://img.shields.io/badge/status-in%20development-yellow)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
