@@ -244,8 +244,19 @@ build: build-llamacpp  ## Build all native components (alias for build-llamacpp 
 # `models/<id>.gguf` — so the path doesn't change when the upstream HF
 # filename changes (a real footgun if the path is hardcoded everywhere).
 MODELS_DIR ?= models
-LLM_MODEL  ?= phi-3-mini
+# Canonical primary model. Must match config.yaml `llm.model_path` and
+# run.sh's LLM_GGUF default. Switched phi-3-mini -> llama-3.2-3b on
+# 2026-07-23: the phi-3-mini GGUF emits garbage tokens for prompts
+# >~2048 tokens (broken sliding-window path), which is fatal for RAG
+# prompts that routinely run 2500-3600 tokens. See config.yaml:62-68.
+LLM_MODEL  ?= llama-3.2-3b
 LLM_GGUF   := $(MODELS_DIR)/$(LLM_MODEL).gguf
+
+# llama-server thread count. Defaults to the CPU core count (nproc):
+# ~12 on the Dell laptop, 4 on the Raspberry Pi 5. Hardcoding a laptop
+# number oversubscribes the Pi's 4 cores and *slows* inference. Override
+# with `make run-llm LLAMA_THREADS=N`. Mirrors run.sh's LLAMA_THREADS.
+LLAMA_THREADS ?= $(shell nproc 2>/dev/null || echo 4)
 
 list-models:  ## List every model in the catalog (no I/O)
 	@$(PYTHON) scripts/download_models.py --list
@@ -323,7 +334,7 @@ run-llm:  ## Start the llama.cpp HTTP server (Phase 3.7+)
 	@llama.cpp/build/bin/llama-server \
 		--model $(LLM_GGUF) \
 		--host 127.0.0.1 --port 8080 \
-		--ctx-size 4096 --threads 10
+		--ctx-size 4096 --threads $(LLAMA_THREADS)
 
 run:  ## Convenience: run the whole stack (Phase 5+)
 	@echo ">> Starting llama.cpp + FastAPI (in two terminals or background)"

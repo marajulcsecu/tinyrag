@@ -17,8 +17,10 @@
 #                     build/bin/llama-server. Override if you built
 #                     llama.cpp to a custom location (per Step 3.4a).
 #   LLM_GGUF          Path to the GGUF model. Default: $REPO_ROOT/models/
-#                     phi-3-mini.gguf. Override for tinyllama / mistral
+#                     llama-3.2-3b.gguf. Override for tinyllama / mistral
 #                     demos.
+#   LLAMA_THREADS     llama-server thread count. Default: nproc (CPU core
+#                     count — 4 on the Pi 5, ~12 on the laptop).
 #   LLM_HOST          llama-server bind address. Default: 127.0.0.1.
 #   LLM_PORT          llama-server port. Default: 8080.
 #   API_HOST          uvicorn bind address. Default: 127.0.0.1.
@@ -121,8 +123,15 @@ readonly UVICORN_LOG="${LOG_DIR}/uvicorn.log"
 # llama-server context size + thread count. Matches the Makefile's
 # `run-llm` target exactly so the behaviour is identical whether you
 # run `make run-llm` or `bash run.sh`.
+#
+# Threads default to the CPU core count (nproc): ~12 on the Dell laptop,
+# 4 on the Raspberry Pi 5. Hardcoding a laptop number (was 10) oversubscribes
+# the Pi's 4 cores and *slows* inference — llama.cpp is pure CPU work, so
+# more threads than cores just adds context-switching. Override with
+# LLAMA_THREADS=N for benchmarking. nproc is coreutils (always present on
+# Debian/Ubuntu + Raspberry Pi OS); the `|| echo 4` is a defensive fallback.
 readonly LLAMA_CTX_SIZE=4096
-readonly LLAMA_THREADS=10
+readonly LLAMA_THREADS="${LLAMA_THREADS:-$(nproc 2>/dev/null || echo 4)}"
 
 # Exit-code constants. Tests grep for these — see the EXIT CODES
 # block in the docstring above.

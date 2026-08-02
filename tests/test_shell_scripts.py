@@ -612,7 +612,7 @@ class TestRunScriptIntegration:
         # Skip if the prerequisites aren't present (fresh CI without
         # llama.cpp built or the model downloaded).
         llama_bin = PROJECT_ROOT / "llama.cpp" / "build" / "bin" / "llama-server"
-        model_file = PROJECT_ROOT / "models" / "phi-3-mini.gguf"
+        model_file = PROJECT_ROOT / "models" / "llama-3.2-3b.gguf"
         if not llama_bin.exists() or not model_file.exists():
             pytest.skip(
                 f"prerequisites missing: {llama_bin} or {model_file} — "

@@ -26,8 +26,8 @@
 #   4. build-llamacpp `make build-llamacpp` — clone + compile llama.cpp
 #                     with OpenBLAS (~5 min cold; skipped if the binary
 #                     is already present at llama.cpp/build/bin/llama-server).
-#   5. download-llm   `make download-llm` — fetch models/phi-3-mini.gguf
-#                     from HuggingFace (~2.4 GB; skipped if the file
+#   5. download-llm   `make download-llm` — fetch models/llama-3.2-3b.gguf
+#                     from HuggingFace (~1.9 GB; skipped if the file
 #                     already exists + SHA-256 matches the manifest).
 #   6. sensors-generate `make sensors-generate` — write
 #                     data/sensor_logs/synthetic_30d.csv (30 days ×
@@ -98,7 +98,7 @@ readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly MIN_BASH_MAJOR=4
 readonly MIN_PYTHON_MAJOR=3
 readonly MIN_PYTHON_MINOR=12
-readonly MIN_DISK_FREE_KB=3000000  # ~3 GB (model 2.4 GB + build 500 MB + venv 300 MB)
+readonly MIN_DISK_FREE_KB=3000000  # ~3 GB floor (model 1.9 GB + build 500 MB + venv/deps)
 
 # Exit-code constants. Tests grep for these so the documented contract
 # is enforced. See the EXIT CODES block in the docstring above.
@@ -205,7 +205,7 @@ preflight() {
 
     # ~3 GB free on the partition that holds the repo. df -Pk is the
     # portable POSIX form (P = POSIX, k = 1-K blocks). The model is
-    # 2.4 GB; llama.cpp build adds ~500 MB; venv + deps add ~300 MB.
+    # 1.9 GB; llama.cpp build adds ~500 MB; venv + deps add ~300 MB.
     local free_kb
     free_kb="$(df -Pk "${REPO_ROOT}" | awk 'NR==2 {print $4}')"
     if (( free_kb < MIN_DISK_FREE_KB )); then
@@ -334,14 +334,16 @@ build_llamacpp() {
 
 # ---- Stage 4: download-llm ------------------------------------------------
 
-# Download models/phi-3-mini.gguf from HuggingFace (~2.4 GB). The
+# Download models/llama-3.2-3b.gguf from HuggingFace (~1.9 GB). The
 # Makefile's download-llm target is already idempotent — it skips
 # if the file is present + SHA-256 matches. We still wrap it so the
-# error path is consistent with the other stages.
+# error path is consistent with the other stages. The model id here
+# MUST match the Makefile LLM_MODEL default + run.sh's LLM_GGUF, or
+# run.sh will fail preflight (EXIT_MODEL_MISSING) after a clean setup.
 download_model() {
-    log_section "Download primary LLM (models/phi-3-mini.gguf, ~2.4 GB)"
+    log_section "Download primary LLM (models/llama-3.2-3b.gguf, ~1.9 GB)"
 
-    local model_path="${REPO_ROOT}/models/phi-3-mini.gguf"
+    local model_path="${REPO_ROOT}/models/llama-3.2-3b.gguf"
     if [[ -f "${model_path}" ]]; then
         log_skipped "Model already present at ${model_path}"
         return 0

@@ -387,7 +387,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         # No --model and no --all: act on the primary by default, so a
         # bare `python scripts/download_models.py` does the useful thing.
-        requested = ["phi-3-mini"]
+        # Canonical primary = llama-3.2-3b (matches config.yaml + run.sh +
+        # the Makefile LLM_MODEL default). Was phi-3-mini; see config.yaml
+        # :62-68 for why we switched.
+        requested = ["llama-3.2-3b"]
 
     if args.verify_only:
         return cmd_verify(requested, args.models_dir)

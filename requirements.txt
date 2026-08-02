@@ -36,13 +36,18 @@ python-dotenv==1.0.1            # load .env into os.environ (12-factor)
 # ----------------------------------------------------------------------------
 faiss-cpu==1.8.0.post1          # CPU-only FAISS — no GPU dep
 sentence-transformers==3.2.1    # embedding model wrapper
-# NOTE on torch: PyPI's default `torch==2.4.1` is the CUDA build (~2 GB).
-# To get the CPU-only wheel (~250 MB), install with the PyTorch CPU index:
-#   pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1
-# `setup.sh` does this automatically. If you pip install -r requirements.txt
-# directly on a CPU-only machine (Pi, or laptop without NVIDIA GPU), the
-# CUDA build installs harmlessly but wastes disk — runtime is identical
-# because torch.cuda.is_available() returns False either way.
+# NOTE on torch: `setup.sh` installs this file as-is (plain `pip install
+# -r requirements.txt`) — it does NOT use a special PyTorch index.
+#   * On the Raspberry Pi 5 (aarch64/linux): PyPI ships only a CPU wheel
+#     for torch 2.4.1 (there is no CUDA build for ARM), so the default
+#     install is already CPU-only (~170 MB) — nothing to do.
+#   * On an x86-64 laptop without an NVIDIA GPU: PyPI's default wheel is
+#     the CUDA build (~2 GB). It installs and runs fine (inference is
+#     identical because torch.cuda.is_available() is False) but wastes
+#     disk. For the small CPU wheel there, install torch first from the
+#     CPU index, then the rest:
+#       pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1
+#       pip install -r requirements.txt
 torch==2.4.1
 numpy==1.26.4                   # pinned for faiss-cpu 1.8.x compatibility
 tiktoken==0.8.0                 # token counting for chunking & prompts
