@@ -126,6 +126,34 @@ PYTHONPATH=src pytest tests/ -q   # 1409 passed, 3 skipped (~17 min)
 curl http://127.0.0.1:8000/api/status | head -c 300
 ```
 
+### Notes for the Raspberry Pi 5
+
+The Pi runs the same two commands — there is no Pi-specific branch. Three
+things differ in practice:
+
+- **Reaching the UI from another machine.** Both services bind
+  `127.0.0.1`, so on a headless Pi the browser on your laptop cannot see
+  them. The safe option is an SSH tunnel, which needs no config change:
+  ```bash
+  ssh -L 8000:127.0.0.1:8000 <user>@<pi-ip>   # then open http://127.0.0.1:8000/
+  ```
+  Alternatively `API_HOST=0.0.0.0 bash run.sh` binds the API to all
+  interfaces — convenient on a trusted lab network, but the UI then has
+  **no authentication**, so do not do this on an open network. Leave
+  `LLM_HOST` at `127.0.0.1` either way.
+- **First start is slow.** llama-server reads the full 1.9 GB model before
+  answering its health check; from microSD that is tens of seconds.
+  `run.sh` allows 180 s (`HEALTH_TIMEOUT`), which is ample — raise it only
+  if you see exit code 14.
+- **Threads are detected, not configured.** The llama.cpp thread count
+  defaults to the CPU core count (4 on the Pi). Do not raise it above the
+  core count: inference is CPU-bound, so extra threads only add context
+  switching and make generation slower.
+
+Python 3.12 is required (`python3 --version`). Current 64-bit Raspberry Pi
+OS images ship it; `torch`, `faiss-cpu`, and `PyMuPDF` all have prebuilt
+`aarch64` wheels, so nothing compiles from source.
+
 ---
 
 ## Project Structure

@@ -25,11 +25,26 @@
 #   LLM_PORT          llama-server port. Default: 8080.
 #   API_HOST          uvicorn bind address. Default: 127.0.0.1.
 #   API_PORT          uvicorn port. Default: 8000.
+#
+#   HEADLESS PI NOTE: both services bind 127.0.0.1 by default, which
+#   means they are reachable only from the machine itself. That is the
+#   right default (the llama-server port in particular should never be
+#   exposed), but on a headless Raspberry Pi you will want to open the
+#   chat UI from another computer's browser. To do that, bind the API —
+#   and only the API — to all interfaces:
+#       API_HOST=0.0.0.0 bash run.sh
+#   then browse to http://<pi-ip>:8000/ . Leave LLM_HOST at 127.0.0.1.
+#   Be aware this exposes the UI to everyone on your network with no
+#   authentication; prefer an SSH tunnel on an untrusted network:
+#       ssh -L 8000:127.0.0.1:8000 <user>@<pi-ip>
+#   which needs no run.sh changes at all.
 #   VENV              Path to the Python venv. Default: $HOME/venvs/tinyrag.
 #                     Must match what setup.sh used (or set the same env
 #                     var when invoking setup.sh).
 #   HEALTH_TIMEOUT    Seconds to wait for each service to become healthy.
-#                     Default: 60.
+#                     Default: 180 (sized for reading a 1.9 GB GGUF from
+#                     a Raspberry Pi microSD card; an SSD is far faster
+#                     and returns as soon as it is ready).
 #
 # WHAT IT DOES (3 stages)
 #   1. Preflight      Verify the llama-server binary + GGUF model exist;
@@ -109,7 +124,17 @@ readonly API_HOST="${API_HOST:-127.0.0.1}"
 readonly API_PORT="${API_PORT:-8000}"
 : "${VENV:=${HOME}/venvs/tinyrag}"
 readonly VENV="${VENV}"
-readonly HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT:-60}"
+# Seconds to wait for each service to pass its health check.
+#
+# 180 s (was 60 s) to accommodate the Raspberry Pi 5. llama-server must
+# read the whole 1.9 GB GGUF before it answers /health, and on microSD
+# that read alone is ~22 s at full SDR104 speed and ~43 s on a slower
+# card — before any model initialisation. The old 60 s budget was tuned
+# on an SSD laptop and left very little headroom on the Pi; tripping it
+# exits 14, which reads like a broken model rather than a slow disk.
+# A generous ceiling costs nothing on fast hardware, because the health
+# check polls once a second and returns as soon as the service is up.
+readonly HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT:-180}"
 
 # Where to write runtime artefacts. logs/ is gitignored + already created
 # during setup (run-llm writes its own logs there too). The PID files
@@ -157,7 +182,14 @@ UVICORN_PID=""
 # ---- CLI argument parsing -------------------------------------------------
 
 print_help() {
-    sed -n '2,80p' "$0"
+    # Print the header comment block: everything from line 2 up to the
+    # closing `# ====` banner. Derived from the file rather than a
+    # hardcoded end line — a fixed range silently truncates the help
+    # the moment anyone adds a line to the docstring (which is exactly
+    # what happened when HEALTH_TIMEOUT's note was expanded).
+    local end
+    end="$(awk 'NR>2 && /^# ={20,}/ {print NR; exit}' "$0")"
+    sed -n "2,${end}p" "$0"
     exit "${EXIT_OK}"
 }
 

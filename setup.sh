@@ -117,7 +117,13 @@ readonly EXIT_SENSORS=15
 # mirrors scripts/portability_check.sh so adding --quiet / --yes later
 # is a copy-paste.
 print_help() {
-    sed -n '2,68p' "$0"
+    # End line derived from the closing `# ====` banner rather than
+    # hardcoded, so editing the docstring can't silently truncate the
+    # help output (the old `2,68p` range already cut the last two
+    # REFERENCES lines).
+    local end
+    end="$(awk 'NR>2 && /^# ={20,}/ {print NR; exit}' "$0")"
+    sed -n "2,${end}p" "$0"
     exit "${EXIT_OK}"
 }
 
@@ -392,6 +398,16 @@ main() {
     log_info "Venv target: ${VENV}"
     log_info "Sensor dataset: ${SENSOR_DATA}"
     log_info "Idempotent — re-running on a set-up machine is a no-op."
+
+    # Run every stage from the repo root. All five install stages shell
+    # out to `make`, which resolves ./Makefile relative to the CURRENT
+    # working directory — not to this script's location. Without this
+    # cd, `bash /path/to/tinyrag/setup.sh` from anywhere else dies with
+    #     make: *** No rule to make target 'deps-system'.  Stop.
+    # and the handler then blames apt/sudo, which sends you debugging
+    # the wrong problem entirely. run.sh already does this (see its
+    # start_uvicorn); setup.sh was missing it.
+    cd "${REPO_ROOT}"
 
     preflight
     install_system_deps
