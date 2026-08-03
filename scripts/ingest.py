@@ -25,7 +25,7 @@ CLI flags
     --config PATH            Path to config.yaml (default: ./config.yaml).
     --db-path PATH           Override metadata DB path.
     --index-path PATH        Override FAISS index path.
-    --doc-type {manual|note|spec}
+    --doc-type {faq|manual}
                              Document type for the metadata store.
     --embedder {real|fake}   Which EmbeddingModel to use. Default: real
                              (sentence-transformers all-MiniLM-L6-v2).
@@ -81,7 +81,11 @@ from tinyrag.ingestion import (  # noqa: E402
     SentenceTransformerEmbedder,
     parse,
 )
-from tinyrag.storage import FAISSStore, MetadataStore  # noqa: E402
+from tinyrag.storage import (  # noqa: E402
+    SUPPORTED_DOC_TYPES,
+    FAISSStore,
+    MetadataStore,
+)
 
 # ---------------------------------------------------------------------------
 # Result type
@@ -701,11 +705,25 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the FAISS index path (default: from config.yaml).",
     )
+    # Choices are derived from the metadata store's own closed set rather
+    # than hardcoded here. They previously drifted: the CLI advertised
+    # ("manual", "note", "spec") while the store accepts
+    # {"manual", "faq", "sensor_summary"}, so --doc-type note/spec always
+    # failed at the metadata stage and --doc-type faq was rejected by
+    # argparse — making FAQ documents impossible to ingest via this CLI.
+    # "sensor_summary" is excluded because sensor rows are written by the
+    # sensor pipeline, not by document ingestion.
+    doc_type_choices = tuple(
+        sorted(SUPPORTED_DOC_TYPES - {"sensor_summary"})
+    )
     p.add_argument(
         "--doc-type",
         default="manual",
-        choices=("manual", "note", "spec"),
-        help="Document type for the metadata store. Default: manual.",
+        choices=doc_type_choices,
+        help=(
+            "Document type for the metadata store. "
+            f"One of: {', '.join(doc_type_choices)}. Default: manual."
+        ),
     )
     p.add_argument(
         "--embedder",

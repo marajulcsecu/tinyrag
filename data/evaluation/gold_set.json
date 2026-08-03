@@ -1,0 +1,224 @@
+[
+  {
+    "id": "Q01",
+    "query": "What processor does the Raspberry Pi 5 use?",
+    "expected_keywords": ["BCM2712", "Cortex-A76", "quad-core", "2.4GHz"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "raspberry-pi-5-product-brief.pdf",
+    "category": "spec_lookup",
+    "difficulty": "easy",
+    "notes": "Verified ground truth: 'Broadcom BCM2712 2.4GHz quad-core 64-bit Arm Cortex-A76 CPU' (product brief p.3). Retrieval verified at 0.807."
+  },
+  {
+    "id": "Q02",
+    "query": "What type of SDRAM does the Raspberry Pi 5 use, and in which capacities is it sold?",
+    "expected_keywords": ["LPDDR4X", "1GB", "8GB", "16GB"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "raspberry-pi-5-product-brief.pdf",
+    "category": "spec_lookup",
+    "difficulty": "easy",
+    "notes": "Ground truth: 'LPDDR4X-4267 SDRAM (options for 1GB, 2GB, 4GB, 8GB and 16GB)' (product brief p.3, chunk 2). Tests enumerated-list retrieval. Phrased around 'SDRAM' rather than a bare 'how much RAM', which is genuinely ambiguous on this corpus: the FAQ's own RAM-requirement entry is an equally valid answer to that question and outranks the brief on it."
+  },
+  {
+    "id": "Q03",
+    "query": "What is the mean time between failure for the Raspberry Pi 5?",
+    "expected_keywords": ["93", "800", "hours", "MTBF"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "raspberry-pi-5-product-brief.pdf",
+    "category": "spec_lookup",
+    "difficulty": "medium",
+    "notes": "Ground truth: 'MTBF Ground Benign: 93 800 hours' (p.3). Tests exact-number retrieval where the query paraphrases the acronym. Retrieval verified at 0.662."
+  },
+  {
+    "id": "Q04",
+    "query": "Until when will the Raspberry Pi 5 remain in production?",
+    "expected_keywords": ["January", "2036", "production"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "raspberry-pi-5-product-brief.pdf",
+    "category": "spec_lookup",
+    "difficulty": "medium",
+    "notes": "Ground truth: 'will remain in production until at least January 2036' (p.3). Retrieval verified at 1.221."
+  },
+  {
+    "id": "Q05",
+    "query": "What is the operating temperature range of the Raspberry Pi 5?",
+    "expected_keywords": ["0", "70", "temperature"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "raspberry-pi-5-product-brief.pdf",
+    "category": "spec_lookup",
+    "difficulty": "medium",
+    "notes": "Ground truth: 'Operating temperature: 0°C to 70°C' (p.3). Degree symbols are stripped from keywords so scoring is encoding-independent."
+  },
+  {
+    "id": "Q06",
+    "query": "What power supply does the Raspberry Pi 5 require?",
+    "expected_keywords": ["5V", "5A", "USB-C"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "raspberry-pi-5-product-brief.pdf",
+    "category": "spec_lookup",
+    "difficulty": "hard",
+    "notes": "Ground truth: '5V/5A DC power via USB-C, with Power Delivery support' (p.3). Buried in a long bulleted feature list."
+  },
+  {
+    "id": "Q07",
+    "query": "What is the Constrained Application Protocol?",
+    "expected_keywords": ["web transfer", "constrained", "protocol"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "rfc7252-coap.txt",
+    "category": "definition",
+    "difficulty": "easy",
+    "notes": "Ground truth: RFC 7252 abstract — 'a specialized web transfer protocol for use with constrained nodes and constrained networks'. Retrieval verified at 1.140."
+  },
+  {
+    "id": "Q08",
+    "query": "Which UDP port does CoAP use by default?",
+    "expected_keywords": ["5683"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "rfc7252-coap.txt",
+    "category": "spec_lookup",
+    "difficulty": "easy",
+    "notes": "Ground truth: 'the default port 5683 is assumed' / 'IANA has assigned the port number 5683' (RFC 7252 §6.1, §12). Retrieval verified at 1.414. Single-token answer — tests precise fact extraction from a 195-chunk document."
+  },
+  {
+    "id": "Q09",
+    "query": "What are the four types of CoAP messages?",
+    "expected_keywords": ["Confirmable", "Non-confirmable", "Acknowledgement", "Reset"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "rfc7252-coap.txt",
+    "category": "definition",
+    "difficulty": "medium",
+    "notes": "Ground truth: 'CoAP defines four types of messages: Confirmable, Non-confirmable, Acknowledgement, Reset' (§2.1). All four keywords must appear for a full score."
+  },
+  {
+    "id": "Q10",
+    "query": "How large is the CoAP message header?",
+    "expected_keywords": ["4", "byte", "header"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "rfc7252-coap.txt",
+    "category": "spec_lookup",
+    "difficulty": "medium",
+    "notes": "Ground truth: 'CoAP uses a short fixed-length binary header (4 bytes)' (§1). Tests numeric spec retrieval."
+  },
+  {
+    "id": "Q11",
+    "query": "What is the default ACK timeout and maximum retransmit count in CoAP?",
+    "expected_keywords": ["2", "seconds", "4", "MAX_RETRANSMIT"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "rfc7252-coap.txt",
+    "category": "spec_lookup",
+    "difficulty": "hard",
+    "notes": "Ground truth: the §4.8 parameter table — 'ACK_TIMEOUT | 2 seconds', 'MAX_RETRANSMIT | 4'. Hard: the answer lives in an ASCII table, and the question asks for two values at once."
+  },
+  {
+    "id": "Q12",
+    "query": "What protocol secures CoAP communications?",
+    "expected_keywords": ["DTLS", "Datagram Transport Layer Security"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "rfc7252-coap.txt",
+    "category": "definition",
+    "difficulty": "medium",
+    "notes": "Ground truth: 'Security binding to Datagram Transport Layer Security (DTLS)' (§1.1, §9.1). Accepts either the acronym or the expansion."
+  },
+  {
+    "id": "Q13",
+    "query": "What is the warranty period for the Nest thermostat?",
+    "expected_keywords": ["two", "2", "years", "defects"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "3rd-gen-Nest-Learning-Thermostat-Install-Guide-UK.pdf",
+    "category": "manual_lookup",
+    "difficulty": "medium",
+    "notes": "Ground truth: 'free from defects in materials and workmanship for a period of two (2) years from the date of delivery' (p.27). REGRESSION GUARD: this question exposed the small-corpus over-fetch bug. Re-verified at 0.882 on the 251-chunk corpus."
+  },
+  {
+    "id": "Q14",
+    "query": "What is the ErP directive?",
+    "expected_keywords": ["Energy Related Product", "ErP", "temperature control"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "3rd-gen-Nest-Learning-Thermostat-Install-Guide-UK.pdf",
+    "category": "manual_lookup",
+    "difficulty": "medium",
+    "notes": "Ground truth: 'Energy Related Product (ErP) Directive ... meets the criteria of the following temperature control classes' (p.26). REGRESSION GUARD: keyword rerank must promote the definition over the table of contents. Re-verified at 0.704."
+  },
+  {
+    "id": "Q15",
+    "query": "Is the Nest thermostat compatible with combi boilers?",
+    "expected_keywords": ["combi", "compatible", "boiler"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "3rd-gen-Nest-Learning-Thermostat-Install-Guide-UK.pdf",
+    "category": "manual_lookup",
+    "difficulty": "hard",
+    "notes": "REGRESSION GUARD: this question exposed the garbled two-column PDF extraction that motivated the pdfplumber-to-PyMuPDF switch. The answer chunk was unreachable (dense -0.026, rank 29/39) before the fix."
+  },
+  {
+    "id": "Q16",
+    "query": "What is RAG?",
+    "expected_keywords": ["retrieval", "augmented", "generation"],
+    "expected_source_type": "manual",
+    "expected_source_hint": "rag.txt",
+    "category": "definition",
+    "difficulty": "easy",
+    "notes": "REGRESSION GUARD: the original false-refusal bug (single-chunk document) plus the substring-rerank bug, where 'rag' matched inside 'storage'/'coverage'. Re-verified at 0.748 citing rag.txt."
+  },
+  {
+    "id": "Q17",
+    "query": "How much RAM does TinyRAG need?",
+    "expected_keywords": ["8", "GB", "RAM"],
+    "expected_source_type": "faq",
+    "expected_source_hint": "tinyrag_deployment_faq.md",
+    "category": "faq_lookup",
+    "difficulty": "easy",
+    "notes": "Ground truth: FAQ 'Plan for 8 GB.' Tests the Markdown ingestion path. Retrieval verified at 1.332."
+  },
+  {
+    "id": "Q18",
+    "query": "Why is the llama.cpp thread count detected automatically instead of hardcoded?",
+    "expected_keywords": ["core", "threads", "slower", "CPU"],
+    "expected_source_type": "faq",
+    "expected_source_hint": "tinyrag_deployment_faq.md",
+    "category": "reasoning",
+    "difficulty": "medium",
+    "notes": "Ground truth: FAQ — more threads than physical cores causes competition and context switching, making generation slower. Tests causal 'why' retrieval, not keyword lookup. Retrieval verified at 1.037."
+  },
+  {
+    "id": "Q19",
+    "query": "Why must the same embedding model be used for indexing and querying?",
+    "expected_keywords": ["not comparable", "similarity", "noise", "retrieval"],
+    "expected_source_type": "faq",
+    "expected_source_hint": "tinyrag_deployment_faq.md",
+    "category": "reasoning",
+    "difficulty": "hard",
+    "notes": "Ground truth: FAQ — vectors from different models are not comparable, so similarity scores collapse toward noise and retrieval silently stops working. Documents the real train/serve mismatch bug."
+  },
+  {
+    "id": "Q20",
+    "query": "Does TinyRAG require an internet connection to answer questions?",
+    "expected_keywords": ["offline", "no", "installation"],
+    "expected_source_type": "faq",
+    "expected_source_hint": "tinyrag_deployment_faq.md",
+    "category": "faq_lookup",
+    "difficulty": "medium",
+    "notes": "Ground truth: FAQ — internet is needed only during installation; once models and indexes are on disk the system runs entirely offline. Supports the offline-mode proof in roadmap Step 5.10."
+  },
+  {
+    "id": "Q21",
+    "query": "What is the capital of France?",
+    "expected_keywords": [],
+    "expected_source_type": "none",
+    "expected_source_hint": null,
+    "category": "fallback",
+    "difficulty": "easy",
+    "notes": "OUT-OF-DOMAIN — the easy fallback case, refused at the retrieval layer. The system MUST refuse and MUST NOT answer from parametric knowledge. Verified: retrieval returns zero chunks above the 0.3 threshold on the 251-chunk corpus, so the refusal is structural. Contrast with Q22, where retrieval does return chunks and the generator must refuse instead. Scored as a pass only when the answer is a refusal.",
+    "expected_behavior": "fallback"
+  },
+  {
+    "id": "Q22",
+    "query": "How do I reset my Nest thermostat to factory settings?",
+    "expected_keywords": [],
+    "expected_source_type": "none",
+    "expected_source_hint": null,
+    "category": "fallback",
+    "difficulty": "hard",
+    "notes": "PLAUSIBLE-BUT-ABSENT — the hardest fallback case. This question was in the original gold set draft, but verification confirmed the ingested Nest install guide contains no factory-reset procedure. Unlike Q21, retrieval does NOT come back empty: it returns 5 installation/setup chunks at 0.76-0.84 because they are topically adjacent. The refusal must therefore come from the generator, not the threshold. This is the sharpest hallucination test in the set: a correct system says it lacks the information; a hallucinating system invents plausible reset steps from the setup chunks it was handed. Score as a pass only on refusal.",
+    "expected_behavior": "fallback"
+  }
+]

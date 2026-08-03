@@ -132,6 +132,47 @@ FIXTURE_REGISTRY: tuple[FixtureSpec, ...] = (
             "Used as the Step 4.9 end-to-end ingestion risk-gate fixture."
         ),
     ),
+    # -----------------------------------------------------------------
+    # Phase 5 evaluation corpus (Step 5.3). Unlike the Nest guide
+    # above, both of these have stable canonical URLs, so
+    # `--name <id> --fixtures-dir data/documents` genuinely
+    # re-downloads them on a fresh clone. The gold set
+    # (data/evaluation/gold_set.json) is committed but these source
+    # documents are gitignored under data/documents/, so this registry
+    # is what makes the evaluation reproducible.
+    # -----------------------------------------------------------------
+    FixtureSpec(
+        name="raspberry-pi-5-product-brief",
+        url="https://datasheets.raspberrypi.com/rpi5/raspberry-pi-5-product-brief.pdf",
+        sha256=(
+            "10583c80f867e05af185742bb0f80448458c606a32dd3dbefbbcfca480b59ead"
+        ),
+        filename="raspberry-pi-5-product-brief.pdf",
+        description=(
+            "Raspberry Pi 5 product brief (6 pages, published April 2026). "
+            "Freely distributed by Raspberry Pi Ltd. Supplies the dense "
+            "hardware-spec questions (Q01-Q06) in the Step 5.3 gold set: "
+            "BCM2712 processor, LPDDR4X options, MTBF, operating "
+            "temperature, production lifetime, power requirements."
+        ),
+    ),
+    FixtureSpec(
+        name="rfc7252-coap",
+        url="https://www.rfc-editor.org/rfc/rfc7252.txt",
+        sha256=(
+            "abfe8cce3370b5b32487421b35725eb6eaf962ea454cad008b5a5cd052e27c5f"
+        ),
+        filename="rfc7252-coap.txt",
+        description=(
+            "RFC 7252 — The Constrained Application Protocol (CoAP), "
+            "IETF Standards Track, June 2014. Freely distributable per "
+            "the IETF Trust legal provisions. A real IoT protocol "
+            "standard: ~64k tokens / 195 chunks, which is what pushes "
+            "the eval corpus past the 50-chunk small-corpus gate and "
+            "exercises the plain-text (non-PDF) ingestion path. "
+            "Supplies gold set questions Q07-Q12."
+        ),
+    ),
 )
 
 
