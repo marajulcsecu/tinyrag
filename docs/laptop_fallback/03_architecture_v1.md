@@ -1,4 +1,13 @@
-# TinyRAG — Architecture & Module Design v1 [LAPTOP FALLBACK COPY]
+# TinyRAG — Architecture & Module Design v1 [LAPTOP FALLBACK COPY — SUPERSEDED]
+
+> **⚠️ Historical reference only.** Written when Raspberry Pi 5
+> availability was uncertain; the lab provided one on 2026-08-03. Also
+> selects **pdfplumber** as the PDF parser — replaced by **PyMuPDF
+> 1.24.10** in 2026-07 because pdfplumber read two-column pages across
+> the gutter, making those passages unretrievable. See
+> [`../05_tech_stack_v1.md`](../05_tech_stack_v1.md) §0. The canonical
+> architecture doc is
+> [`../03_architecture_v1.md`](../03_architecture_v1.md).
 
 > **📋 This is the laptop-fallback version of the Architecture document.** It is identical to the main `docs/03_architecture_v1.md` except that:
 > - All deployment examples in Section 13 use the laptop paths (`~/tinyrag/`, no systemd).

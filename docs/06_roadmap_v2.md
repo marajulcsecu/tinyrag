@@ -27,7 +27,7 @@ You build, test, and demo the **entire** TinyRAG system on your laptop (Dell Ins
 - Compared across 3 LLMs.
 - Demoed to your advisor at the end of Week 8.
 
-**The laptop version is your project.** If the Pi never arrives, you still have a complete, submittable capstone.
+**The laptop version is your project.** It is complete and submittable on its own — the Pi deployment builds on it rather than being a prerequisite. (Historical note: this line originally hedged against the Pi never arriving. The lab provided a Raspberry Pi 5 on 2026-08-03, so Phase 6 is greenlit — see Step 6.1.)
 
 ### Phase B — Deployment (Week 9): "Make it real."
 
@@ -134,7 +134,7 @@ WEEK  1  2  3  4  5  6  7  8  9  10
 
 **What AI does:**
 - Write `.gitignore` (excludes `models/`, `data/`, `logs/`, `reports/`, `.venv/`, `__pycache__/`, `*.pyc`, `.env`).
-- Write `README.md` skeleton (project name, one-paragraph description, "in progress" status, **a "Running on laptop" section since the Pi is not here yet**).
+- Write `README.md` skeleton (project name, one-paragraph description, "in progress" status, and a "Running on laptop" section — at the time this step ran the Pi had not been provided yet; the README now covers both laptop and Pi).
 - Write `LICENSE` (MIT).
 - Initialize `git init`, make initial commit.
 - Create a `main` branch.
@@ -1235,28 +1235,36 @@ Phase 6b — Sensor Integration (Days 3-5): Wire DHT22 + PIR, verify real data f
 
 ---
 
-### Step 6.1 — 🛑 RISK GATE: verify Pi is actually available
+### Step 6.1 — ✅ RESOLVED: hardware availability (was a 🛑 RISK GATE)
 
 **Phase:** 6
-**Goal:** Confirm the Raspberry Pi 5 and sensors are physically in your hands and working.
+**Status:** **Closed as of 2026-08-03.** The lab provided a Raspberry Pi 5,
+so the "what if the Pi never arrives" contingency that this gate existed to
+handle no longer applies. Phase 6 is greenlit.
 
-**What you do:**
-- 🔴 **Check 1:** Do you have the Raspberry Pi 5 (8 GB recommended)?
-- 🔴 **Check 2:** Do you have a microSD card (≥ 16 GB) flashed with Raspberry Pi OS 64-bit?
-- 🔴 **Check 3:** Do you have a DHT22 sensor (or whatever your lab provides)?
-- 🔴 **Check 4:** Do you have a PIR motion sensor?
-- 🔴 **Check 5:** Do you have jumper wires, a breadboard, and a way to power the Pi?
+**Hardware on hand:**
+- ✅ **Raspberry Pi 5, 8 GB** — provided by the lab.
+- ✅ **64 GB microSD** — flashed with a current 64-bit Raspberry Pi OS
+  image (Python 3.12+), OS setup already complete.
+- ⏸️ **DHT22 / PIR sensors** — **deliberately deferred.** Sensor
+  integration is on hold pending advisor guidance, so Steps 6.6 and 6.7
+  are not blocking. This is a scope decision, not a missing-hardware
+  problem: TinyRAG is a general-purpose document RAG system, and the
+  document pipeline is what Phase 6 deploys.
 
-**Review intensity:** 🔴 Deep (physical reality check)
-**Done when:** all 5 checks pass.
+**What remains:** deploy the code path (Steps 6.2–6.5). The Pi runs the same
+`setup.sh` + `run.sh` as the laptop — no Pi-specific branch exists. Two
+portability items were fixed ahead of the port (commit `88fbb94`): the
+model default now resolves to `llama-3.2-3b` on a fresh install (it
+previously downloaded `phi-3-mini` while `run.sh` expected
+`llama-3.2-3b`, which failed preflight), and the llama.cpp thread count is
+detected from the CPU core count instead of being hardcoded to 10, which
+oversubscribed the Pi's 4 cores.
 
-**🛑 Critical decision point:**
-- ✅ **All 5 checks pass** → continue Phase 6 normally.
-- ⚠️ **Pi is available but sensors are not** → do Phase 6a (code deploy) only. Document sensors as "future work."
-- ❌ **Pi is not available** → **skip Phase 6 entirely.** Proceed to Phase 7. The laptop build is your project. Document the Pi deployment as "deferred to future work" in the report.
-- ❌ **Pi is available but you have < 5 days until the deadline** → do a minimal Pi smoke test (just run the system, don't integrate sensors) and proceed to Phase 7.
+**Verified before the port:** `torch`, `faiss-cpu`, and `PyMuPDF` all ship
+cp312 `aarch64` wheels, so nothing compiles from source on the Pi.
 
-**Time:** you 30 min (just the check).
+**Time:** you 0 min (gate closed).
 
 ---
 
@@ -1631,8 +1639,8 @@ For easy reference, all 🛑 risk gates in one place:
 | **4.20** | Portability self-test fails | Fix "works on my machine" issues NOW, on the laptop |
 | **4.25** | Phase 4 checkpoint fails | Iterate on failing step; don't proceed |
 | **5.11** | Phase 5 checkpoint fails | More time on testing; do not skip evaluation |
-| **6.1** | **Pi or sensors unavailable** | **Skip Phase 6 entirely. Proceed to Phase 7.** The laptop is your project. |
-| **6.5** | Pi too slow for Phi-3 | Switch primary to Llama 3.2 3B or TinyLlama |
+| **6.1** | ~~Pi or sensors unavailable~~ | **Resolved 2026-08-03** — the lab provided a Raspberry Pi 5 (8 GB). Phase 6 is greenlit; sensor steps (6.6/6.7) are deferred pending advisor guidance. |
+| **6.5** | Pi too slow for the primary model | Switch primary to TinyLlama 1.1B. (Note: the primary is already Llama 3.2 3B — Phi-3 was dropped for producing garbage above ~2048 prompt tokens.) |
 | **6.6/6.7** | Sensor wiring fails | Document the issue; fall back to simulated sensor data on the Pi |
 | **6.8** | Pi demo not ready | Use the recorded video; laptop demo is still the primary |
 

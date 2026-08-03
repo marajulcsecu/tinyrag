@@ -68,7 +68,12 @@ htmlcov/
 # START of a line. Keep every pattern on its own line, comments above it.
 
 # downloaded GGUF weights (large, license-restricted)
-models/
+# Leading slash anchors this to the REPO ROOT. Without it, the pattern
+# also matched src/tinyrag/models/ (the Python package), so `git add`
+# refused that directory and any NEW module added there would have been
+# silently ignored. The tracked files survived only because they predate
+# the rule.
+/models/
 # uploaded user PDFs/MD (user-private)
 data/documents/
 # raw + processed sensor CSVs (user-private)

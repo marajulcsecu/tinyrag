@@ -24,7 +24,7 @@ TinyRAG is a **self-contained, on-device** web application that:
 - Ingests smart-home device manuals (PDF) and a custom home FAQ (Markdown).
 - Reads from real or simulated IoT sensors (temperature, humidity, energy, motion).
 - Stores everything in a local vector store + metadata database.
-- Answers natural-language user questions using a local small LLM (Phi-3 Mini 3.8B Q4) running on llama.cpp.
+- Answers natural-language user questions using a local small LLM (Llama 3.2 3B Instruct Q4_K_M) running on llama.cpp.
 - Streams answers back to a web UI with source citations.
 - Runs on a Raspberry Pi 5 (primary) or a Dell Inspiron 15 3520 laptop running Ubuntu 24.04 LTS (fallback).
 - Makes **zero cloud calls** at runtime.
@@ -140,7 +140,7 @@ TinyRAG is a **standalone web application** running on a single edge device. It 
 - **A3:** Internet is available during the initial setup (for downloading models and Python packages). After setup, the system runs offline.
 - **A4:** The student has terminal access (SSH or local keyboard/monitor).
 - **A5:** The student will use a Chromium-based or Firefox browser to access the UI.
-- **A6:** The Phi-3 Mini 3.8B model file is available on Hugging Face (verified: yes).
+- **A6:** The Llama 3.2 3B Instruct GGUF is available on Hugging Face (verified: yes, `bartowski/Llama-3.2-3B-Instruct-GGUF`). *Revised 2026-07-23 — originally Phi-3 Mini 3.8B; see `docs/05_tech_stack_v1.md` §0.*
 - **A7:** The system is single-tenant — there is no concept of multiple users or roles.
 
 ### 2.6 Apportioning of Requirements
@@ -348,7 +348,7 @@ Requirements tagged **[L]** are laptop-specific extensions (relevant only on the
 | Vector store | FAISS or ChromaDB (Python library, in-process) | N/A |
 | Metadata DB | SQLite 3 | `data/metadata.db` |
 | Web framework | FastAPI 0.115+ | `http://localhost:8000/` |
-| PDF parser | pdfplumber or PyPDF2 (Python library) | N/A |
+| PDF parser | PyMuPDF (Python library) — *revised from "pdfplumber or PyPDF2"* | N/A |
 | Sensor source | Pluggable — see FR-11 | N/A |
 
 ### 5.3 Communication Interfaces
@@ -520,7 +520,7 @@ server:
   port: 8000
 
 llm:
-  model_path: models/phi-3-mini-3.8b-instruct-q4.gguf
+  model_path: models/llama-3.2-3b.gguf
   server_url: http://localhost:8080
   context_size: 4096
   temperature: 0.0

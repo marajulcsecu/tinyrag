@@ -119,7 +119,17 @@ class ModelEntry:
 
 MODEL_REGISTRY: Mapping[str, ModelEntry] = {
     # -----------------------------------------------------------------
-    # PRIMARY — the default LLM for TinyRAG queries
+    # EVAL B — was PRIMARY until 2026-07-23.
+    #
+    # Demoted because this GGUF emits garbage tokens once the prompt
+    # exceeds ~2048 tokens (broken sliding-window attention path in the
+    # file). RAG prompts routinely run 2500-3600 tokens, so ordinary
+    # questions returned gibberish. Verified decisively: same
+    # llama-server binary and prompt, phi-3-mini -> garbage,
+    # llama-3.2-3b -> coherent. Retained ONLY as a comparison model for
+    # the Phase 5 evaluation. The primary is now "llama-3.2-3b" below,
+    # which matches config.yaml `llm.model_path` and run.sh's LLM_GGUF.
+    # See docs/05_tech_stack_v1.md §0 + docs/VERIFICATION_ROADMAP.md.
     # -----------------------------------------------------------------
     "phi-3-mini": ModelEntry(
         model_id="phi-3-mini",
@@ -134,11 +144,12 @@ MODEL_REGISTRY: Mapping[str, ModelEntry] = {
         # the manifest, not the registry" — see downloader logic.
         expected_sha256="",  # populated on first verified download
         license="MIT",
-        role="primary",
+        role="eval-medium",
         intended_context=4096,
         notes=(
-            "Primary LLM. Microsoft's official GGUF release. Use bartowski "
-            "or TheBloke mirror only if microsoft/ becomes unavailable."
+            "Comparison model only — do NOT set as llm.model_path. "
+            "Emits garbage above ~2048 prompt tokens; see the block "
+            "comment above."
         ),
     ),
     # -----------------------------------------------------------------
@@ -158,7 +169,7 @@ MODEL_REGISTRY: Mapping[str, ModelEntry] = {
         notes="Smallest comparison model. Sets the quality floor.",
     ),
     # -----------------------------------------------------------------
-    # EVAL B — middle comparison (validates the sweet spot)
+    # PRIMARY — the default LLM for TinyRAG queries (since 2026-07-23)
     # -----------------------------------------------------------------
     "llama-3.2-3b": ModelEntry(
         model_id="llama-3.2-3b",
@@ -169,12 +180,18 @@ MODEL_REGISTRY: Mapping[str, ModelEntry] = {
         expected_size_bytes=1_800_000_000,  # ~1.8 GB
         expected_sha256="",
         license="Llama3.2",
-        role="eval-medium",
+        role="primary",
         intended_context=4096,
         notes=(
-            "Middle comparison. Meta's repo is gated; bartowski hosts "
-            "the same weights. Confirm the SHA against the official "
-            "Llama 3.2 community license before redistributing."
+            "PRIMARY LLM since 2026-07-23 (promoted from middle "
+            "comparison when phi-3-mini was found to emit garbage above "
+            "~2048 prompt tokens). Coherent at RAG prompt sizes of "
+            "2500-3600 tokens on the same llama-server binary. Matches "
+            "config.yaml llm.model_path + run.sh LLM_GGUF + the "
+            "Makefile LLM_MODEL default. Meta's repo is gated; "
+            "bartowski hosts the same weights. Confirm the SHA against "
+            "the official Llama 3.2 community license before "
+            "redistributing."
         ),
     ),
     # -----------------------------------------------------------------

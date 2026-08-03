@@ -661,7 +661,7 @@ timestamp,sensor_id,sensor_type,value,unit
 | Embedding | **sentence-transformers / all-MiniLM-L6-v2** | Small (80 MB), fast, good quality |
 | Vector store | **FAISS (faiss-cpu)** | Fast, in-process, well-supported |
 | Metadata DB | **SQLite 3** | Zero-config, file-based, perfect for capstone scale |
-| PDF parsing | **pdfplumber** | More accurate than PyPDF2 for complex layouts |
+| PDF parsing | **PyMuPDF** (`get_text("blocks", sort=True)`) | Column-aware reading order. *Revised 2026-07-23: was pdfplumber, which interleaved two-column pages across the gutter and made those passages unretrievable. See `docs/05_tech_stack_v1.md` §0.* |
 | Text parsing | Built-in Python (TXT, MD) | No extra dep |
 | Backend | **FastAPI 0.115+** | Modern, async, auto-docs |
 | ASGI server | **uvicorn** | Standard FastAPI runner |
@@ -844,7 +844,7 @@ These will be resolved when I write the next document (`04_database_design_v1.md
 |---|----------|----------------------|
 | Q1 | Embedding model — `all-MiniLM-L6-v2` (80 MB, 384-dim) or `bge-small-en-v1.5` (33 MB, 384-dim)? | **all-MiniLM-L6-v2** — slightly higher quality, more battle-tested |
 | Q2 | Vector store — FAISS or ChromaDB? | **FAISS** — simpler, in-process, no extra service |
-| Q3 | PDF parser — `pdfplumber` or `PyPDF2`? | **pdfplumber** — better for complex layouts (tables, multi-column) |
+| Q3 | PDF parser — `pdfplumber` or `PyPDF2`? | **Neither — resolved to PyMuPDF.** pdfplumber was chosen originally, but its `extract_text()` reads multi-column pages across the gutter; PyMuPDF's block-sorted extraction was adopted 2026-07-23. |
 | Q4 | Should the query log DB be queryable from the UI (e.g., "show last 50 queries")? | **No** — out-of-scope; logs are for the developer only |
 | Q5 | For the multi-model comparison: do we re-index between models? | **No** — only the LLM swaps; the vector store stays the same |
 

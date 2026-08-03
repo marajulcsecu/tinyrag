@@ -1,4 +1,9 @@
-# TinyRAG — Database / Storage Design v1 [LAPTOP FALLBACK COPY]
+# TinyRAG — Database / Storage Design v1 [LAPTOP FALLBACK COPY — SUPERSEDED]
+
+> **⚠️ Historical reference only.** Written when Raspberry Pi 5
+> availability was uncertain; the lab provided one on 2026-08-03. The
+> canonical storage-design doc is
+> [`../04_database_design_v1.md`](../04_database_design_v1.md).
 
 > **📋 This is the laptop-fallback version of the Database Design document.** It is identical to the main `docs/04_database_design_v1.md` except that:
 > - All paths in Section 3 use `~/tinyrag/` instead of `/home/pi/tinyrag/`.

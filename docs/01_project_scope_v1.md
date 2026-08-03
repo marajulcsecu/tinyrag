@@ -1,4 +1,16 @@
-# TinyRAG — Project Scope (v1, Draft for Discussion)
+# TinyRAG — Project Scope (v1, Draft for Discussion) [SUPERSEDED — HISTORICAL REFERENCE]
+
+> **⚠️ This document is no longer the active scope.**
+>
+> The canonical scope is [`01_project_scope_v2.md`](01_project_scope_v2.md).
+> This v1 draft is kept only to preserve the original decision record.
+>
+> **Known-stale content below** — do not follow it:
+> - Lists **Phi-3 Mini 3.8B** as the recommended primary LLM. The primary
+>   is now **Llama 3.2 3B Instruct**; Phi-3 emits garbage above ~2048
+>   prompt tokens. See [`05_tech_stack_v1.md`](05_tech_stack_v1.md) §0.
+> - Predates the Raspberry Pi 5 being provided by the lab (2026-08-03),
+>   so any "if the Pi is unavailable" contingency is moot.
 
 **Project Title:** TinyRAG — A Lightweight, On-Device Retrieval-Augmented Generation Assistant for Smart Home IoT
 

@@ -33,7 +33,7 @@ TinyRAG addresses all three by running a small LLM + RAG pipeline **entirely on-
 | # | Decision | Choice |
 |---|----------|--------|
 | D1 | **Use case** | Smart Home Assistant |
-| D2 | **Primary LLM** | Phi-3 Mini 3.8B Instruct (Q4_K_M quantized) |
+| D2 | **Primary LLM** | Llama 3.2 3B Instruct (Q4_K_M quantized) — *revised 2026-07-23; was Phi-3 Mini 3.8B, which produced garbage above ~2048 prompt tokens. See `docs/05_tech_stack_v1.md` §0.* |
 | D3 | **Secondary LLMs (for evaluation)** | TinyLlama 1.1B, Llama 3.2 3B, optionally Mistral 7B |
 | D4 | **LLM serving** | llama.cpp HTTP server |
 | D5 | **Backend framework** | FastAPI |
@@ -121,8 +121,8 @@ The system ingests and indexes:
 | Model | Size (Q4) | Role in evaluation |
 |-------|-----------|---------------------|
 | TinyLlama 1.1B Chat | ~700 MB | Fastest baseline |
-| Llama 3.2 3B Instruct | ~1.8 GB | Newest Meta, good quality |
-| **Phi-3 Mini 3.8B (4k)** | ~2.3 GB | **Primary / shipped** |
+| Llama 3.2 3B Instruct | ~1.9 GB | **Primary / shipped** — newest Meta, coherent at RAG prompt sizes |
+| **Phi-3 Mini 3.8B (4k)** | ~2.3 GB | Comparison only (was primary until 2026-07-23) |
 | *(optional)* Mistral 7B | ~4 GB | Quality ceiling (likely too slow on Pi 5) |
 
 **Measured on each model:**
@@ -154,7 +154,7 @@ The system ingests and indexes:
 │                                                               │
 │  ┌──────────┐  ┌─────────────┐  ┌──────────────────┐        │
 │  │ Web UI   │←→│ FastAPI     │←→│ llama.cpp server │        │
-│  │ HTML/JS  │  │ backend     │  │ Phi-3 Mini 3.8B  │        │
+│  │ HTML/JS  │  │ backend     │  │ Llama 3.2 3B     │        │
 │  └──────────┘  └──────┬──────┘  └──────────────────┘        │
 │                       │                                       │
 │                       ↓                                       │

@@ -1,4 +1,12 @@
-# TinyRAG — Tech Stack v1 (Pinned) [LAPTOP FALLBACK COPY]
+# TinyRAG — Tech Stack v1 (Pinned) [LAPTOP FALLBACK COPY — SUPERSEDED]
+
+> **⚠️ Do not install from this document.** Two pins here were reversed
+> during the 2026-07 verification pass and would reintroduce fixed bugs:
+> **Phi-3 Mini** as primary LLM (now Llama 3.2 3B — Phi-3 emits garbage
+> above ~2048 prompt tokens) and **pdfplumber 0.11.4** as PDF parser (now
+> PyMuPDF 1.24.10 — pdfplumber scrambled two-column pages). The
+> authoritative pinning is `requirements.txt`; the reasoning is in
+> [`../05_tech_stack_v1.md`](../05_tech_stack_v1.md) §0.
 
 > **📋 This is the laptop-fallback version of the Tech Stack document.** It is identical to the main `docs/05_tech_stack_v1.md` except that:
 > - Section 8 highlights the laptop-specific stack (OpenBLAS, no GPIO, no systemd).

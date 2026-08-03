@@ -12,7 +12,7 @@
 
 ## What is TinyRAG?
 
-TinyRAG is a **privacy-preserving smart-home assistant** that runs entirely on a small edge device. It reads your device manuals (PDF), a custom home FAQ (Markdown), and live IoT sensor data (temperature, humidity, energy, motion), and answers natural-language questions about your home using a **local** small language model (Phi-3 Mini 3.8B, Q4-quantized, served via llama.cpp).
+TinyRAG is a **privacy-preserving document assistant** that runs entirely on a small edge device. It reads any documents you give it — PDF, plain text, or Markdown — and answers natural-language questions about them using a **local** small language model (Llama 3.2 3B Instruct, Q4-quantized, served via llama.cpp). It can also summarise IoT sensor data (temperature, humidity, energy, motion) when a sensor source is configured, which is where the smart-home framing comes from; the retrieval pipeline itself is general-purpose.
 
 **The entire pipeline runs offline.** Turn off your Wi-Fi — it still works.
 
@@ -25,16 +25,16 @@ TinyRAG is a **privacy-preserving smart-home assistant** that runs entirely on a
 
 ---
 
-## Current Status (June 2026)
+## Current Status (August 2026)
 
-**Active phase: Phase 4 — Build (laptop-first) is complete and working end-to-end.** A working RAG system runs locally on a Dell Inspiron 15 3520 (Ubuntu 24.04 LTS, i5-1235U, 8 GB RAM) with a built-in chat UI, REST API, document upload, and 1351 passing tests. The next milestones are the evaluation harness (Phase 5) and the Raspberry Pi 5 deployment (Phase 6).
+**Phase 4 (Build) is complete and verified end-to-end; Phase 5 (evaluation) is in progress and Phase 6 (Pi deployment) is now unblocked.** The system runs on a Dell Inspiron 15 3520 (Ubuntu 24.04 LTS, i5-1235U, 8 GB RAM) with a chat UI, REST API, document upload, and **1409 passing tests**. A pre-demo verification pass found and fixed six substantive bugs (see [`docs/VERIFICATION_ROADMAP.md`](docs/VERIFICATION_ROADMAP.md)), and the lab has since provided a **Raspberry Pi 5 (8 GB)**, so the deployment phase is greenlit.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Phase 3 | Setup (repo, venv, llama.cpp build) | Done |
-| Phase 4 | Build (ingestion, retrieval, generation, sensors, API) | **Done** — system runs end-to-end |
-| Phase 5 | Test (20-Q gold set + benchmarks, 3-model comparison) | In progress |
-| Phase 6 | Deploy (Raspberry Pi 5 + real DHT22/PIR sensors) | Planned |
+| Phase 4 | Build (ingestion, retrieval, generation, sensors, API) | **Done** — verified end-to-end |
+| Phase 5 | Test (gold set + benchmarks, 3-model comparison) | **In progress** — 22-question gold set + eval corpus done (Step 5.3); eval harness next |
+| Phase 6 | Deploy (Raspberry Pi 5) | **Unblocked** — Pi 5 in hand, OS ready; sensor wiring deferred pending advisor guidance |
 | Phase 7 | Report (capstone report + final demo) | Planned |
 
 See [`docs/06_roadmap_v2.md`](docs/06_roadmap_v2.md) for the full 60-step plan.
@@ -94,25 +94,25 @@ Deep-dive architecture explainer for teacher demo: [`docs/EXPLANATION.md`](docs/
 
 ---
 
-## Running on Laptop (current target)
+## Running on Laptop or Raspberry Pi 5
 
-> ⚠️ **The Raspberry Pi 5 is not here yet.** All development is on the laptop. The architecture is portable: the same code, models, and `config.yaml` work on both — only the deployment target in config changes.
+> **The Raspberry Pi 5 is now available** (8 GB model, 64 GB microSD, provided by the lab). The same `setup.sh` + `run.sh` bring the stack up on either machine: the code, model, and `config.yaml` are shared, and the thread count is detected from the CPU core count at launch (4 on the Pi, ~12 on the laptop). Set `deployment.target` to `raspberry_pi` in `config.yaml` when running on the Pi.
 
 ### Prerequisites
 
-- **OS:** Ubuntu 24.04 LTS (or 22.04 LTS, or any modern Debian/Ubuntu)
-- **Python:** 3.12 (Ubuntu 24.04 ships this)
+- **OS:** Ubuntu 24.04 LTS, or Raspberry Pi OS (64-bit) on the Pi
+- **Python:** 3.12 (Ubuntu 24.04 ships this; the Pi needs a 3.12+ image)
 - **RAM:** 8 GB minimum
-- **Disk:** ~10 GB free (for llama.cpp build + 3 GGUF models + 30 days of sensor data)
+- **Disk:** ~10 GB free (for llama.cpp build + the GGUF model + 30 days of sensor data)
 - **Build tools:** `build-essential`, `cmake`, `git` (installed in Step 3.3)
 - **BLAS:** `libopenblas-dev`, `liblapack-dev` (installed in Step 3.3)
 
 ### One-command install
 
 ```bash
-git clone https://github.com/marajul/tinyrag.git
+git clone https://github.com/marajulcsecu/tinyrag.git
 cd tinyrag
-bash setup.sh        # installs Python deps + builds llama.cpp + downloads models (~20 min)
+bash setup.sh        # installs Python deps + builds llama.cpp + downloads the model (~20 min)
 bash run.sh          # starts FastAPI on http://127.0.0.1:8000 + llama-server on :8080
 ```
 
@@ -122,7 +122,7 @@ bash run.sh          # starts FastAPI on http://127.0.0.1:8000 + llama-server on
 ### Test the install
 
 ```bash
-PYTHONPATH=src pytest tests/ -q   # 1351 passed, 2 skipped (~4 min)
+PYTHONPATH=src pytest tests/ -q   # 1409 passed, 3 skipped (~17 min)
 curl http://127.0.0.1:8000/api/status | head -c 300
 ```
 
@@ -185,14 +185,14 @@ tinyrag/
 
 | Component | Choice | Why |
 |-----------|--------|-----|
-| LLM (primary) | Phi-3 Mini 3.8B Instruct, Q4_K_M GGUF | Best quality in the ≤4B class |
-| LLM (compare) | TinyLlama 1.1B, Llama 3.2 3B | Required for 3+ model eval |
+| LLM (primary) | **Llama 3.2 3B Instruct, Q4_K_M GGUF** | Coherent at RAG prompt sizes (2500–3600 tok); replaced Phi-3 Mini, which emitted garbage above ~2048 tokens |
+| LLM (compare) | TinyLlama 1.1B, Phi-3 Mini 3.8B | Required for 3+ model eval |
 | LLM server | llama.cpp HTTP server | Mature, well-documented, CPU-only |
 | Embeddings | sentence-transformers `all-MiniLM-L6-v2` (384-d) | Small, fast, good quality |
 | Vector store | FAISS `IndexFlatIP` | Simple, CPU-friendly, cosine via normalized inner product |
 | Metadata DB | SQLite 3 (WAL mode) | Embedded, zero-config |
 | API | FastAPI 0.115 + Uvicorn | Async, auto-docs |
-| PDF parsing | pdfplumber | Robust, MIT |
+| PDF parsing | **PyMuPDF 1.24.10** (`get_text("blocks", sort=True)`) | Column-aware reading order; replaced pdfplumber, which interleaved two-column pages across the gutter |
 | Token counting | tiktoken | Industry standard |
 | Logging | structlog | Structured JSON logs |
 | Tests | pytest | Standard |

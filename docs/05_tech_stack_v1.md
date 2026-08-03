@@ -8,6 +8,27 @@
 
 ---
 
+## 0. ⚠️ Corrections since v1.0 (read this first)
+
+Two choices in this document were **reversed during the pre-4.25
+verification pass** (2026-07-22/23) after both caused real, silent
+failures. The tables below have been corrected in place, but the
+reasoning is recorded here because both original choices look
+reasonable on paper and a future contributor might otherwise
+re-introduce them.
+
+**The authoritative pinning is always `requirements.txt` and
+`config.yaml`, not this document.**
+
+| Was | Now | Why it changed |
+|-----|-----|----------------|
+| **Primary LLM:** Phi-3 Mini 3.8B | **Llama 3.2 3B Instruct** (`models/llama-3.2-3b.gguf`) | The Phi-3 Mini GGUF emits garbage tokens once the prompt exceeds ~2048 tokens (broken sliding-window attention path in that file). RAG prompts routinely run 2500–3600 tokens, so ordinary questions returned gibberish. Proven with a decisive test: same llama.cpp binary, same prompt, Phi-3 → garbage, Llama 3.2 → coherent. Phi-3 is retained as a **comparison** model for the Phase 5 evaluation. |
+| **PDF parsing:** pdfplumber 0.11.4 | **PyMuPDF 1.24.10** using `get_text("blocks", sort=True)` | pdfplumber's `extract_text()` reads two-column pages straight across the gutter, interleaving the columns and sometimes reversing text (`pets yb pets noitallatsnI`). Affected chunks embedded as noise and became unreachable — a whole class of PDF answers was silently missing. PyMuPDF's block-sorted extraction preserves column reading order. Also confirmed to ship `aarch64` wheels for the Pi. |
+
+Full investigation and evidence: `docs/VERIFICATION_ROADMAP.md`.
+
+---
+
 ## 1. Purpose of This Document
 
 This document pins down **every technology, library, and tool** TinyRAG uses, with **exact versions** and **rationale**. It is the source of truth for `requirements.txt` and the build flags in `setup.sh`.
@@ -29,7 +50,7 @@ After reading this, you should be able to:
 | **OS (laptop)** | Ubuntu 24.04.4 LTS | ❌ | ✅ | confirmed |
 | **Python** | CPython | 3.11 | 3.12 | exact |
 | **LLM engine** | llama.cpp (HTTP server) | ✅ | ✅ | tag `gguf-v0.19.0` pinned (see §3.2) |
-| **Primary LLM** | Phi-3 Mini 3.8B Instruct Q4_K_M | ✅ | ✅ | GGUF |
+| **Primary LLM** | Llama 3.2 3B Instruct Q4_K_M ⚠️ *changed — see §0* | ✅ | ✅ | GGUF |
 | **Comparison LLM 1** | TinyLlama 1.1B Chat Q4_K_M | ✅ | ✅ | GGUF |
 | **Comparison LLM 2** | Llama 3.2 3B Instruct Q4_K_M | ✅ | ✅ | GGUF |
 | **Optional LLM 3** | Mistral 7B Instruct Q4_K_M | ⚠️ (slow) | ✅ | GGUF |
@@ -39,7 +60,7 @@ After reading this, you should be able to:
 | **Backend framework** | FastAPI | ✅ | ✅ | 0.115.4 |
 | **ASGI server** | Uvicorn | ✅ | ✅ | 0.32.0 |
 | **Config** | PyYAML + Pydantic v2 | ✅ | ✅ | 6.0.2, 2.9.2 |
-| **PDF parsing** | pdfplumber | ✅ | ✅ | 0.11.4 |
+| **PDF parsing** | PyMuPDF ⚠️ *changed — see §0* | ✅ | ✅ | 1.24.10 |
 | **Text tokenization** | tiktoken | ✅ | ✅ | 0.8.0 |
 | **Embedding lib** | sentence-transformers | ✅ | ✅ | 3.2.1 |
 | **ML backend** | PyTorch (CPU) | ✅ | ✅ | 2.4.1 |
@@ -123,9 +144,9 @@ The `setup.sh` script **auto-detects the architecture** and applies the right fl
 
 | Role | Model | On-disk filename | Size | Source URL |
 |------|-------|------------------|------|------------|
-| **Primary** | Phi-3 Mini 3.8B Instruct (4k) Q4_K_M | `models/phi-3-mini.gguf` | ~2.3 GB | HF: `microsoft/Phi-3-mini-4k-instruct-gguf` |
+| **Primary** | Llama 3.2 3B Instruct Q4_K_M | `models/llama-3.2-3b.gguf` | ~1.9 GB | HF: `bartowski/Llama-3.2-3B-Instruct-GGUF` |
 | **Eval A** | TinyLlama 1.1B Chat v1.0 Q4_K_M | `models/tinyllama-1.1b.gguf` | ~700 MB | HF: `TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF` |
-| **Eval B** | Llama 3.2 3B Instruct Q4_K_M | `models/llama-3.2-3b.gguf` | ~1.8 GB | HF: `bartowski/Llama-3.2-3B-Instruct-GGUF` |
+| **Eval B** | Phi-3 Mini 3.8B Instruct (4k) Q4_K_M — *demoted from primary, see §0* | `models/phi-3-mini.gguf` | ~2.3 GB | HF: `microsoft/Phi-3-mini-4k-instruct-gguf` |
 | **Eval C (optional)** | Mistral 7B Instruct v0.3 Q4_K_M | `models/mistral-7b.gguf` | ~4 GB | HF: `TheBloke/Mistral-7B-Instruct-v0.3-GGUF` |
 
 > **On-disk filename convention.** We standardise on the model *id* as the on-disk filename (`<models_dir>/<id>.gguf`), not the upstream HF filename. This is a deliberate footgun-avoidance measure: if the upstream maintainer renames the file (e.g. `Phi-3-mini-4k-instruct-q4.gguf` → `Phi-3-mini-4k-instruct-q4_k_m.gguf`), our `make run-llm` keeps working. The mapping from id to upstream filename lives in `src/tinyrag/models/registry.py` and is documented in `docs/MODELS.md` §1.
@@ -170,7 +191,7 @@ numpy==1.26.4
 tiktoken==0.8.0
 
 # ===== Parsing =====
-pdfplumber==0.11.4
+PyMuPDF==1.24.10                     # was pdfplumber==0.11.4 — see §0
 
 # ===== HTTP client (for llama.cpp) =====
 httpx==0.27.2

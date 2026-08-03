@@ -1,6 +1,36 @@
-# Laptop Fallback Documentation
+# Laptop Fallback Documentation [SUPERSEDED — HISTORICAL REFERENCE]
 
-> **Purpose:** This directory contains all information needed to run, develop, and deploy TinyRAG on a regular laptop when the Raspberry Pi 5 is unavailable. The same code, models, and architecture apply — only the deployment configuration changes.
+> **⚠️ The contingency this directory was written for did not occur.**
+>
+> The lab provided a **Raspberry Pi 5 (8 GB)** on **2026-08-03**, so the
+> "Pi is unavailable" fallback path is no longer the active plan. Phase 6
+> (Pi deployment) is greenlit — see
+> [`../06_roadmap_v2.md`](../06_roadmap_v2.md) Step 6.1.
+>
+> This directory is kept as a **decision record**: it documents the
+> contingency planning done when Pi availability was genuinely uncertain,
+> which is worth showing in the capstone report. It is **not** current
+> guidance.
+>
+> **Known-stale content throughout this directory** — do not follow it:
+> - **Phi-3 Mini** listed as the primary LLM. The primary is now
+>   **Llama 3.2 3B Instruct**; Phi-3 emits garbage above ~2048 prompt
+>   tokens and is retained only as a comparison model.
+> - **pdfplumber** listed as the PDF parser. The parser is now
+>   **PyMuPDF 1.24.10**; pdfplumber interleaved two-column pages across
+>   the gutter, making those passages unretrievable.
+>
+> Both reversals are explained in
+> [`../05_tech_stack_v1.md`](../05_tech_stack_v1.md) §0, with full
+> evidence in [`../VERIFICATION_ROADMAP.md`](../VERIFICATION_ROADMAP.md).
+>
+> Note that the laptop remains a fully supported *development* target —
+> that has not changed. What changed is that it is no longer the *only*
+> target.
+
+---
+
+> **Original purpose (historical):** This directory contains all information needed to run, develop, and deploy TinyRAG on a regular laptop when the Raspberry Pi 5 is unavailable. The same code, models, and architecture apply — only the deployment configuration changes.
 
 ---
 

@@ -16,7 +16,7 @@ TinyRAG is a **small, self-contained Retrieval-Augmented Generation (RAG) system
 - **Honest** — if no relevant context is found, the system *refuses to answer* instead of hallucinating.
 
 The "tiny" in TinyRAG has two meanings:
-1. **Small models** — 3.8 B-parameter Phi-3 Mini LLM + 80 MB MiniLM embedding model (vs. typical 70 B+ chat models).
+1. **Small models** — a 3 B-parameter Llama 3.2 3B Instruct LLM + 80 MB MiniLM embedding model (vs. typical 70 B+ chat models).
 2. **Edge deployment** — designed to run on a Raspberry Pi 5 (8 GB RAM) without any cloud dependency.
 
 ---

@@ -46,7 +46,7 @@ tinyrag/
 
 ```bash
 # Clone
-git clone https://github.com/marajul/tinyrag.git
+git clone https://github.com/marajulcsecu/tinyrag.git
 cd tinyrag
 
 # Create venv

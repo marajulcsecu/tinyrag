@@ -1,4 +1,11 @@
-# TinyRAG — System Requirements Specification (SRS) v1 [LAPTOP FALLBACK COPY]
+# TinyRAG — System Requirements Specification (SRS) v1 [LAPTOP FALLBACK COPY — SUPERSEDED]
+
+> **⚠️ Historical reference only.** Written when Raspberry Pi 5
+> availability was uncertain; the lab provided one on 2026-08-03. Also
+> names **Phi-3 Mini** as the LLM and **pdfplumber** as the PDF parser —
+> both were replaced (Llama 3.2 3B and PyMuPDF respectively). See
+> [`../05_tech_stack_v1.md`](../05_tech_stack_v1.md) §0. The canonical
+> SRS is [`../02_srs_v1.md`](../02_srs_v1.md).
 
 > **📋 This is the laptop-fallback version of the SRS.** It is identical to the main `docs/02_srs_v1.md` except that:
 > - All requirements tagged **[L]** apply on this path.

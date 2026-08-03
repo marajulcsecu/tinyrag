@@ -38,14 +38,24 @@ The machine-readable version of this catalog lives in
 
 | ID | Display name | Quant | Approx. size | HF repo | License | Role | Pinned? |
 |----|--------------|-------|--------------|---------|---------|------|---------|
-| `phi-3-mini` | Phi-3 Mini 3.8B Instruct (4k) | Q4_K_M | ~2.3 GB | `microsoft/Phi-3-mini-4k-instruct-gguf` | MIT | **primary** | ✅ |
+| `llama-3.2-3b` | Llama 3.2 3B Instruct | Q4_K_M | ~1.9 GB | `bartowski/Llama-3.2-3B-Instruct-GGUF` | Llama3.2 (community) | **primary** | ✅ |
+| `phi-3-mini` | Phi-3 Mini 3.8B Instruct (4k) | Q4_K_M | ~2.3 GB | `microsoft/Phi-3-mini-4k-instruct-gguf` | MIT | eval-medium ⚠️ *demoted from primary — see note below* | ✅ |
 | `tinyllama-1.1b` | TinyLlama 1.1B Chat v1.0 | Q4_K_M | ~700 MB | `TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF` | Apache-2.0 | eval-small | ✅ |
-| `llama-3.2-3b` | Llama 3.2 3B Instruct | Q4_K_M | ~1.8 GB | `bartowski/Llama-3.2-3B-Instruct-GGUF` | Llama3.2 (community) | eval-medium | ✅ |
 | `mistral-7b` | Mistral 7B Instruct v0.3 | Q4_K_M | ~4.0 GB | `bartowski/Mistral-7B-Instruct-v0.3-GGUF` | Apache-2.0 | eval-large | ⚠️ optional (laptop only) |
 
 ### 1.1 Per-model details
 
-#### `phi-3-mini` — Primary
+#### `phi-3-mini` — Comparison model (formerly primary)
+
+> ⚠️ **Demoted from primary on 2026-07-23.** This GGUF emits garbage
+> tokens once the prompt exceeds ~2048 tokens, caused by a broken
+> sliding-window attention path in the file. RAG prompts routinely run
+> 2500–3600 tokens, so ordinary questions returned gibberish. Verified
+> decisively: same llama.cpp binary and prompt, Phi-3 → garbage,
+> Llama 3.2 3B → coherent. It is retained **only** as a comparison
+> model for the Phase 5 evaluation. Do not set it as
+> `llm.model_path`. See `docs/05_tech_stack_v1.md` §0 and
+> `docs/VERIFICATION_ROADMAP.md`.
 
 - **On disk:** `models/phi-3-mini.gguf`
 - **HF URL:** <https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf>
@@ -64,13 +74,13 @@ The machine-readable version of this catalog lives in
 - **Context length:** 2048 tokens
 - **Why this one:** sets the "quality floor" in the Phase 5 evaluation. If TinyLlama answers a question correctly, the bigger models should too — and if they don't, we have a real finding to report.
 
-#### `llama-3.2-3b` — Middle comparison
+#### `llama-3.2-3b` — **Primary** (promoted 2026-07-23)
 
 - **On disk:** `models/llama-3.2-3b.gguf`
 - **HF URL:** <https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf>
 - **Filename in repo:** `Llama-3.2-3B-Instruct-Q4_K_M.gguf`
 - **Context length:** 4096 tokens
-- **Why this one:** Meta's official repo is gated; bartowski's mirror hosts the same weights under a permissive re-upload. We are using it for **research evaluation**, not redistribution.
+- **Why this one:** it is the **primary/shipped model** — the only model in the registry verified to stay coherent at TinyRAG's real prompt sizes (2500–3600 tokens). Meta's official repo is gated; bartowski's mirror hosts the same weights under a permissive re-upload. We are using it for **research evaluation**, not redistribution.
 - **License caveat:** Llama 3.2 community license. The final report must include the attribution block from <https://llama.meta.com/>.
 
 #### `mistral-7b` — Optional 4th comparison
@@ -91,17 +101,17 @@ After every download, the script writes a single JSON file at
 
 ```json
 {
-  "phi-3-mini": {
-    "model_id": "phi-3-mini",
-    "display_name": "Phi-3 Mini 3.8B Instruct (Q4_K_M, 4k)",
-    "hf_repo": "microsoft/Phi-3-mini-4k-instruct-gguf",
-    "hf_filename": "Phi-3-mini-4k-instruct-q4.gguf",
+  "llama-3.2-3b": {
+    "model_id": "llama-3.2-3b",
+    "display_name": "Llama 3.2 3B Instruct (Q4_K_M)",
+    "hf_repo": "bartowski/Llama-3.2-3B-Instruct-GGUF",
+    "hf_filename": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
     "quantization": "Q4_K_M",
-    "license": "MIT",
+    "license": "Llama3.2",
     "role": "primary",
-    "url": "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf",
-    "path": "models/phi-3-mini.gguf",
-    "size_bytes": 2320000000,
+    "url": "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+    "path": "models/llama-3.2-3b.gguf",
+    "size_bytes": 1800000000,
     "sha256": "a1b2c3d4…",
     "downloaded_at_utc": "2026-06-23T18:00:00+00:00",
     "tinyRag_version": "0.1.0"
