@@ -192,9 +192,25 @@ def _sha256_file(path: Path, *, chunk_bytes: int = 64 * 1024) -> str:
 
 def _download(url: str, dest: Path) -> None:
     """Stream ``url`` to ``dest`` via urllib (stdlib only — no extra deps)."""
+    # A browser-ish User-Agent is required, not cosmetic: urllib's default
+    # ``Python-urllib/3.x`` is rejected with HTTP 403 by some CDNs. This
+    # bit us on the Pi 5 deploy, where datasheets.raspberrypi.com refused
+    # the product-brief download while the same URL worked fine in a
+    # browser and via curl. Everything else about the request is
+    # unchanged; we are not pretending to be a browser to bypass a
+    # paywall or robots rule, just to satisfy a UA filter on a file the
+    # vendor publishes for public download.
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux aarch64) TinyRAG-fixture-downloader"
+            )
+        },
+    )
     # ``urlopen`` with a stream-friendly timeout. We don't set a
     # hard byte cap — the fixtures are small PDFs (~1 MB max).
-    with urllib.request.urlopen(url, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=60) as resp:
         # Raise on 4xx/5xx so the caller gets a clean error.
         if resp.status >= 400:  # pragma: no cover (urlopen raises already)
             raise RuntimeError(f"HTTP {resp.status} downloading {url}")

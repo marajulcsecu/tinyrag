@@ -172,9 +172,28 @@ else
             log_error "Existing ${SRC_DIR} has no origin remote."
             exit 1
         fi
-        log_info "Fetching latest refs (incl. tags)..."
-        git fetch --depth=1 --tags origin master 2>&1 | tail -3
-        cd ..
+        # Verify the origin actually points at llama.cpp, not just that
+        # *some* remote exists. An interrupted setup can leave a partial
+        # .git here whose config still names a different repository —
+        # this happened on the Pi 5 deploy, where a power cut mid-clone
+        # left a 48K .git pointing at the TinyRAG remote. The old check
+        # passed, then `git fetch origin master` failed with the
+        # baffling "couldn't find remote ref master", and the caller
+        # blamed the build toolchain. Rather than fail, re-clone: the
+        # directory holds no usable source in that state anyway.
+        existing_origin="$(git remote get-url origin 2>/dev/null)"
+        if [[ "${existing_origin}" != *"llama.cpp"* ]]; then
+            log_warn "Existing ${SRC_DIR} points at '${existing_origin}',"
+            log_warn "not llama.cpp — treating as a stale/partial clone and re-cloning."
+            cd ..
+            rm -rf "$SRC_DIR"
+            mkdir -p "$SRC_PARENT"
+            git clone --depth=1 --tags "$LLAMACPP_REPO" "$SRC_DIR"
+        else
+            log_info "Fetching latest refs (incl. tags)..."
+            git fetch --depth=1 --tags origin master 2>&1 | tail -3
+            cd ..
+        fi
     else
         mkdir -p "$SRC_PARENT"
         log_info "git clone --depth=1 --tags ${LLAMACPP_REPO} ${SRC_DIR}"

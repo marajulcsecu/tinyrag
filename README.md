@@ -34,7 +34,7 @@ TinyRAG is a **privacy-preserving document assistant** that runs entirely on a s
 | Phase 3 | Setup (repo, venv, llama.cpp build) | Done |
 | Phase 4 | Build (ingestion, retrieval, generation, sensors, API) | **Done** — verified end-to-end |
 | Phase 5 | Test (gold set + benchmarks, 3-model comparison) | **In progress** — 22-question gold set + eval corpus done (Step 5.3); eval harness next |
-| Phase 6 | Deploy (Raspberry Pi 5) | **Unblocked** — Pi 5 in hand, OS ready; sensor wiring deferred pending advisor guidance |
+| Phase 6 | Deploy (Raspberry Pi 5) | **Code deploy done** — verified answering on a Pi 5 (8 GB) 2026-08-04; sensor wiring deferred pending advisor guidance |
 | Phase 7 | Report (capstone report + final demo) | Planned |
 
 See [`docs/06_roadmap_v2.md`](docs/06_roadmap_v2.md) for the full 60-step plan.
@@ -128,9 +128,20 @@ curl http://127.0.0.1:8000/api/status | head -c 300
 
 ### Notes for the Raspberry Pi 5
 
-The Pi runs the same two commands — there is no Pi-specific branch. Three
-things differ in practice:
+**Verified working on a Pi 5 (8 GB) as of 2026-08-04** — retrieval,
+generation, and citation, fully offline. Full walkthrough and field notes:
+[`docs/PI_DEPLOYMENT.md`](docs/PI_DEPLOYMENT.md).
 
+The Pi runs the same two commands as the laptop — there is no Pi-specific
+branch. What differs in practice:
+
+- **⚠️ Python 3.12 must be installed first.** Current 64-bit Raspberry Pi
+  OS (Debian 13 trixie) ships **Python 3.13**, and the pinned `torch==2.4.1`
+  / `numpy==1.26.4` have no 3.13 wheels — `pip` would try to compile torch
+  from source on 4 ARM cores. `apt` has no 3.12 on any Debian channel, so
+  install a prebuilt standalone CPython 3.12 and create the venv from it
+  before running `setup.sh`. Exact commands in
+  [`docs/PI_DEPLOYMENT.md`](docs/PI_DEPLOYMENT.md) §2.
 - **Reaching the UI from another machine.** Both services bind
   `127.0.0.1`, so on a headless Pi the browser on your laptop cannot see
   them. The safe option is an SSH tunnel, which needs no config change:
@@ -149,10 +160,14 @@ things differ in practice:
   defaults to the CPU core count (4 on the Pi). Do not raise it above the
   core count: inference is CPU-bound, so extra threads only add context
   switching and make generation slower.
+- **The corpus is not in the clone.** `data/` is gitignored, so a fresh Pi
+  starts with an empty index — rebuild it per
+  [`data/evaluation/corpus/README.md`](data/evaluation/corpus/README.md).
 
-Python 3.12 is required (`python3 --version`). Current 64-bit Raspberry Pi
-OS images ship it; `torch`, `faiss-cpu`, and `PyMuPDF` all have prebuilt
-`aarch64` wheels, so nothing compiles from source.
+**Measured on the Pi:** a 1730-token prompt takes **78 s** end to end
+(70 s prompt eval at 24.6 tok/s, 8 s generation at 3.6 tok/s), using
+**487 MB of RAM**. That is roughly 3–5× slower than the laptop's 15–25 s,
+and prompt processing is ~90% of it.
 
 ---
 
@@ -202,6 +217,7 @@ tinyrag/
 **For the teacher demo / capstone presentation:**
 - [`docs/EXPLANATION.md`](docs/EXPLANATION.md) — architecture deep-dive with diagrams, engineering-decision rationale, anticipated Q&A.
 - [`docs/DEMO_QUESTIONS.md`](docs/DEMO_QUESTIONS.md) — verified demo questions with expected citations + FAQ cheat-sheet.
+- [`docs/PI_DEPLOYMENT.md`](docs/PI_DEPLOYMENT.md) — Raspberry Pi 5 deployment walkthrough, measured performance, and field notes.
 
 **For evaluators / advisors:** scope + SRS + EXPLANATION are enough.
 **For new developers:** AGENT.md + architecture + roadmap.

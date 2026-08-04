@@ -1268,10 +1268,16 @@ cp312 `aarch64` wheels, so nothing compiles from source on the Pi.
 
 ---
 
-### Step 6.2 — Set up the Raspberry Pi 5 (base OS + SSH)
+### Step 6.2 — Set up the Raspberry Pi 5 (base OS + SSH) · ✅ DONE 2026-08-04
 
 **Phase:** 6a (Code Deployment)
 **Goal:** A working Pi 5 with Raspberry Pi OS 64-bit, reachable via SSH.
+
+**Result:** Pi 5 Model B Rev 1.1 (8 GB), Debian 13 trixie 64-bit, kernel
+6.18, 64 GB microSD. SSH enabled with key auth; Wi-Fi configured with
+autoconnect (survives reboots). VNC enabled via `raspi-config nonint
+do_vnc 0` — note that **Remmina cannot connect** (wayvnc requires TLS/
+RSA-AES that Remmina's VNC plugin does not negotiate); TigerVNC works.
 
 **What AI does:**
 - Generate `docs/pi_setup_checklist.md` with the exact Raspberry Pi Imager settings.
@@ -1289,10 +1295,25 @@ cp312 `aarch64` wheels, so nothing compiles from source on the Pi.
 
 ---
 
-### Step 6.3 — Clone the repo and run `setup.sh` on the Pi
+### Step 6.3 — Clone the repo and run `setup.sh` on the Pi · ✅ DONE 2026-08-04
 
 **Phase:** 6a
 **Goal:** The same `setup.sh` works on Pi (auto-detection was designed for this).
+
+**Result:** the same `setup.sh` ran unmodified — no Pi-specific code path
+was needed, which validates the portability claim. llama.cpp compiled
+cleanly for aarch64 with OpenBLAS linked; all Python deps resolved to
+prebuilt `aarch64` wheels (nothing compiled from source).
+
+**One blocker had to be solved first:** Debian 13 ships **Python 3.13
+only**, and the pinned `torch==2.4.1` / `numpy==1.26.4` have no cp313
+wheels — and `apt` has no 3.12 on any Debian channel. Fixed by installing a
+prebuilt standalone CPython 3.12 and creating the venv from it before
+running `setup.sh`. Upgrading the pins instead is not viable: `faiss-cpu`,
+`PyMuPDF`, and `sentence-transformers` publish no aarch64 cp313 wheels at
+any version. Keeping the pins also keeps laptop and Pi environments
+byte-identical, so Phase 5 evaluation numbers stay comparable. Full
+procedure: [`docs/PI_DEPLOYMENT.md`](PI_DEPLOYMENT.md) §2.
 
 **What AI does:**
 - Verify `setup.sh` correctly auto-detects aarch64 and uses Pi flags (`-mcpu=cortex-a76 -mfpu=neon-fp-armv8`, no OpenBLAS).
@@ -1310,10 +1331,24 @@ cp312 `aarch64` wheels, so nothing compiles from source on the Pi.
 
 ---
 
-### Step 6.4 — Sync data from laptop to Pi
+### Step 6.4 — Sync data from laptop to Pi · ✅ DONE 2026-08-04
 
 **Phase:** 6a
 **Goal:** The Pi has the same ingested documents and vector store as your laptop.
+
+**Result:** rather than copying the index (which would hide any
+platform-specific embedding difference), the corpus was **re-ingested on
+the Pi from source documents**. Outcome matches the laptop exactly: **209
+doc chunks**, real MiniLM 384-dim embeddings, and an integrity check
+showing 209 DB rows = 209 FAISS vectors with **zero dangling and zero
+orphaned** entries in either direction. Evaluation results are therefore
+directly comparable between the two machines.
+
+Two notes for anyone repeating this: `data/` is gitignored, so a fresh
+clone starts with an empty index; and ingestion must pass `--embedder
+real`, since the fake embedder produces SHA-256 vectors that are not
+comparable to query vectors and make retrieval silently return noise.
+Procedure: [`data/evaluation/corpus/README.md`](../data/evaluation/corpus/README.md).
 
 **What AI does:**
 - Write `scripts/sync_to_pi.sh` that uses `rsync` to copy `data/` (excluding logs) to the Pi.
@@ -1328,10 +1363,65 @@ cp312 `aarch64` wheels, so nothing compiles from source on the Pi.
 
 ---
 
-### Step 6.5 — 🛑 RISK GATE: first LLM call on Pi
+### Step 6.5 — 🛑 RISK GATE: first LLM call on Pi · ⚠️ **RUN 2026-08-04 — LATENCY TARGET MISSED**
 
 **Phase:** 6a
 **Goal:** Confirm the Pi can run the primary LLM within latency budget.
+
+**Status: the Pi runs the stack correctly, but ~10× slower than this gate
+assumed.** Functionally a pass; on latency, a clear miss. Recorded honestly
+because the original threshold was written before any ARM measurement
+existed.
+
+**Measured (Pi 5, 8 GB, llama-3.2-3b Q4_K_M, `--threads 4`, ctx 4096):**
+
+| Stage | Measured | Rate |
+|---|---|---|
+| Prompt eval | 70.3 s / 1730 tok | 24.6 tok/s |
+| Generation | 7.7 s / 28 tok | 3.6 tok/s |
+| **Total** | **78 s** | |
+| RAM | 487 MB / 8 GB | — |
+
+Answer was correct and correctly cited (`raspberry-pi-5-product-brief.pdf`
+p.2, score 0.807), so retrieval and generation are sound — this is purely
+a throughput result.
+
+**Against the original decision points:** the gate asked for a 200-token
+answer in under 7 s. At 3.6 tok/s, generation alone would take ~55 s, plus
+~70 s of prompt eval for a realistic RAG prompt. So `> 7s` is met by a wide
+margin — the gate as written says "switch primary to TinyLlama 1.1B."
+
+**Why the original threshold was unrealistic, not the hardware:** <7 s for
+200 tokens on a 4-core Cortex-A76 CPU implies ≳30 tok/s of *generation*,
+which no 3B-class model achieves on this silicon without a GPU. The number
+was a guess made during planning, before anyone had run a model on ARM. The
+Pi is performing normally for its class.
+
+**Two genuine observations that matter more than the raw number:**
+
+1. **Prompt eval is ~90% of the total** (70 s of 78 s). Latency here is
+   dominated by *prompt size*, not by model size — so trimming retrieved
+   context pays far better on the Pi than swapping models. The 0.15
+   relevance floor from the pre-4.25 verification pass (which cut the RAG
+   prompt from 1480 to 582 tokens on the laptop) is worth much more on this
+   hardware.
+2. **Memory is a non-issue** — 487 MB of 8 GB. The OOM contingency in the
+   original decision list never came close to applying, and ctx-size does
+   not need reducing.
+
+**Open decision (needs a call before the Phase 6 checkpoint):** whether to
+switch the Pi's primary to TinyLlama 1.1B for demo responsiveness, keep
+llama-3.2-3b and present the honest latency, or run the demo on the laptop
+and present the Pi as a deployment-and-portability result. Switching models
+would trade answer quality for speed and would *also* break comparability
+with the laptop evaluation numbers, so it is not obviously the right move —
+this is a supervisor-facing trade-off, not a purely technical one.
+
+**Full detail:** [`docs/PI_DEPLOYMENT.md`](PI_DEPLOYMENT.md) §5.
+
+---
+
+### Step 6.5 — original gate definition (kept for reference)
 
 **What AI does:**
 - Provide the exact `llama-server` command with Pi flags (`-mcpu=cortex-a76`, `--threads 4`).

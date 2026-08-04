@@ -258,9 +258,11 @@ install_system_deps() {
 #   when the 797 MB torch download drops at 80%) has the directory but
 #   is missing packages. The old guard skipped it, leaving the system
 #   broken with "No module named uvicorn" at run.sh time. The fix:
-#   probe 3 sentinel packages that span the full requirements.txt
+#   probe sentinel packages that span the full requirements.txt
 #   (uvicorn from the server stack, sentence_transformers from the
-#   ML stack, structlog from the observability stack). If any import
+#   ML stack, structlog from the observability stack, plus numpy and
+#   torch as the large binary wheels most likely to be left
+#   half-installed by an interruption). If any import
 #   fails, we re-run pip install against the existing venv — this
 #   avoids recreating the venv from scratch (which would lose any
 #   packages that DID install successfully).
@@ -269,9 +271,21 @@ install_python_deps() {
 
     if [[ -d "${VENV}" ]]; then
         # The venv directory exists — but are the deps actually installed?
-        # Probe 3 sentinel packages that span the full requirements.txt.
+        # Probe sentinel packages that span the full requirements.txt.
+        #
+        # torch and numpy are in this list for a specific reason. The
+        # original four sentinels were all small pure-Python packages,
+        # which install in milliseconds and therefore almost always
+        # survive an interruption. The packages that DON'T survive are
+        # the large binary wheels — torch is 89 MB, scipy 33 MB — so the
+        # check was probing exactly the wrong things. On the Pi 5 deploy
+        # a power cut mid-install left all four original sentinels
+        # importable while torch was missing entirely and numpy
+        # segfaulted on import; setup.sh reported "deps verified" and
+        # skipped the repair, and the failure only surfaced much later
+        # at query time. Probing the heavy wheels too closes that gap.
         local sentinels_ok=true
-        for pkg in uvicorn fastapi sentence_transformers structlog; do
+        for pkg in uvicorn fastapi sentence_transformers structlog numpy torch; do
             if ! "${VENV}/bin/python" -c "import ${pkg}" 2>/dev/null; then
                 sentinels_ok=false
                 log_warn "Venv exists but '${pkg}' is not importable — deps are incomplete"
