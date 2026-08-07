@@ -149,7 +149,13 @@ helps far more here than on the laptop, which is why the 0.15 relevance
 floor from the pre-4.25 verification pass matters doubly on this hardware.
 
 Memory is not a constraint: **487 MB resident of 8 GB**. A 4 GB board would
-likely also work, though it has not been tested.
+likely also work, though it has not been tested. A later run over the larger
+2,983-chunk corpus measured 545 MB, so corpus size barely moves this.
+
+**These timings assume the default 4 threads.** On an inadequate supply the
+board must be throttled to `LLAMA_THREADS=2` to stay up, which roughly
+doubles latency to ~172 s for an 1,800-token prompt. See
+[`PI_POWER_RUNBOOK.md`](PI_POWER_RUNBOOK.md).
 
 Verified working end to end:
 
@@ -191,29 +197,48 @@ Fixed in `c5bdb99` before this deployment.
 
 ## 7. If the Pi reboots unexpectedly
 
-Three unexplained power losses occurred during this deployment, including
-one while completely idle. Check first:
+**This is now diagnosed and measured — see
+[`PI_POWER_RUNBOOK.md`](PI_POWER_RUNBOOK.md).** The suspicion recorded here
+was correct: the supply sags under sustained multi-core load, dropping the
+5 V input to ~4.96 V against a 4.63 V trip point. Read that document for the
+rail measurements, the `LLAMA_THREADS=2` workaround, safe large-document
+ingestion, and the PSU migration steps.
+
+First checks:
 
 ```bash
 vcgencmd get_throttled    # 0x0 = healthy; bit 16 = undervoltage occurred
 vcgencmd measure_temp     # throttles at 80°C
+uptime -p                 # low uptime = it crashed, even if it pings fine
 ```
 
 Ours consistently read `0x0` at ~47 °C with no OOM kills and no filesystem
 errors — meaning power vanished with **no warning to the OS at all**, which
-rules out both undervoltage detection and thermal shutdown. That pattern
-points at the supply or the connector rather than the board: a partially
-seated USB-C plug, or a PSU that sags faster than the monitoring circuit
-reacts. Use the official 27 W supply.
+rules out both undervoltage detection and thermal shutdown. Later
+confirmation: a phone adapter reproduced the crash immediately, and the
+board also died while completely idle. Use the official 27 W supply.
 
-Enable persistent journaling so the next crash leaves evidence behind:
+Enable persistent journaling so the next crash leaves evidence behind. Note
+that on Raspberry Pi OS a vendor drop-in at
+`/usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf` sets
+`Storage=volatile` and **silently wins** over edits to
+`/etc/systemd/journald.conf`, so override it with a higher-numbered drop-in:
 
 ```bash
-sudo mkdir -p /var/log/journal
-sudo systemd-tmpfiles --create --prefix /var/log/journal
+sudo mkdir -p /etc/systemd/journald.conf.d
+printf '[Journal]\nStorage=persistent\n' | \
+  sudo tee /etc/systemd/journald.conf.d/99-persistent-storage.conf
 sudo systemctl restart systemd-journald
+journalctl --list-boots    # more than one line means it is working
 ```
 
-Good news: ext4 survived every one of these cleanly. Re-running `setup.sh`
-and re-ingesting was always sufficient, and the FAISS index never showed a
-dangling or orphaned vector afterwards.
+Good news: ext4 and SQLite (WAL) survived every one of these cleanly.
+Re-running `setup.sh` and re-ingesting was always sufficient.
+
+**Correction to an earlier claim:** this section previously stated the FAISS
+index never showed a dangling or orphaned vector afterwards. That was wrong
+— a later audit found 4 vectors in `doc.faiss` with no UUID mapping in the
+metadata store, which can surface as retrieval hits with no retrievable
+text. Re-ingesting on top of a damaged index preserves those orphans; only a
+clean rebuild removes them. Always run the three-store consistency check in
+[`PI_POWER_RUNBOOK.md`](PI_POWER_RUNBOOK.md) §4 after a crash.
