@@ -77,6 +77,17 @@ llm:
   # "context overflow" warnings (rare).
   context_size: 4096
 
+  # HTTP timeout for one llama-server call, in seconds.
+  #
+  # The client default was 120 s, calibrated on the laptop. That is too
+  # tight for the Pi 5, and much too tight when llama-server is limited
+  # to fewer threads (LLAMA_THREADS=2) to keep current draw down on a
+  # marginal PSU — a ~1.7k-token RAG prompt then runs past 120 s and the
+  # request fails with `llm_failed: llama-server timed out` even though
+  # generation was proceeding normally. 600 s covers the worst measured
+  # Pi case with headroom. Lower it on the laptop for faster feedback.
+  timeout_s: 600.0
+
   # Sampling temperature. 0.0 = greedy/deterministic (recommended for
   # RAG where you want the same answer every time). 0.7 is the
   # "creative" default for chat.

@@ -460,6 +460,7 @@ def _build_llm(settings: Settings, *, kind: str) -> LLMClient:
         return LlamaCppClient(
             base_url=settings.llm.server_url.rstrip("/"),
             model=model_id,
+            timeout_s=settings.llm.timeout_s,
         )
     raise ValueError(f"unknown llm kind: {kind!r}")
 

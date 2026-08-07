@@ -262,6 +262,23 @@ class LLMSettings(BaseModel):
         le=32768,
         description="Context window passed to llama-server's --ctx-size.",
     )
+    timeout_s: float = Field(
+        # The LlamaCppClient default (120 s) is calibrated for the
+        # laptop, where a RAG prompt generates in well under a minute.
+        # The Pi 5 is far slower, and slower still when llama-server is
+        # thread-limited to protect a marginal PSU: a 2-thread run on a
+        # ~1.7k-token prompt exceeds 120 s and the request fails with
+        # ``llm_failed`` even though generation was progressing fine.
+        # 600 s covers the worst measured Pi case with headroom; lower
+        # it on the laptop if you want faster failure feedback.
+        default=600.0,
+        gt=0.0,
+        le=3600.0,
+        description=(
+            "HTTP timeout for a single llama-server call, in seconds. "
+            "Raise on slow/thread-limited hardware (Raspberry Pi)."
+        ),
+    )
     temperature: float = Field(
         default=0.0,
         ge=0.0,
