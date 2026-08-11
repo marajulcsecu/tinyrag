@@ -286,8 +286,8 @@ def create_app(
         title="TinyRAG",
         version="0.4.0",
         description=(
-            "Edge IoT Retrieval-Augmented Generation. "
-            "Phase 4 API surface."
+            "On-device Retrieval-Augmented Generation over your own "
+            "documents. Phase 4 API surface."
         ),
         lifespan=lifespan,
     )

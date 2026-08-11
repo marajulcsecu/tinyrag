@@ -1,9 +1,19 @@
 # TinyRAG — System Explanation for Teacher Demo
 
-**Project**: TinyRAG — Retrieval-Augmented Generation for Edge IoT
+**Project**: TinyRAG — Retrieval-Augmented Generation for Edge Devices
 **Author**: Marajul (Capstone Project)
 **Demo corpus**: `rag.txt` (1 chunk) + `3rd-gen-Nest-Learning-Thermostat-Install-Guide-UK.pdf` (38 chunks) + 180 synthetic sensor summaries
 **Live UI**: http://127.0.0.1:8000/
+
+---
+
+> ⚠️ **Partly historical — read [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) for the
+> current, verified description.** This deep-dive predates two changes: the
+> generation model is now **Llama 3.2 3B Instruct** (not Phi-3 Mini — Phi-3 was
+> demoted because its GGUF emits garbage above ~2048 prompt tokens), and the demo
+> corpus/chunk counts have since shifted. The *architecture and reasoning* below
+> are still accurate; where a specific model name, chunk count, or test number
+> disagrees with `PROJECT_OVERVIEW.md`, the overview is authoritative.
 
 ---
 
@@ -122,7 +132,7 @@ The "tiny" in TinyRAG has two meanings:
 
 | Decision | What we picked | Why |
 |----------|----------------|-----|
-| **LLM** | Phi-3 Mini 3.8B Q4_K_M (~2.4 GB) | Fits in 8 GB Pi RAM alongside OS + llama-server; punches above its weight on grounded Q&A |
+| **LLM** | Llama 3.2 3B Instruct Q4_K_M (~1.8 GB) | Fits in 8 GB Pi RAM alongside OS + llama-server; stays coherent at 2500–3600-token RAG prompts (Phi-3 Mini did not) |
 | **Embedder** | `all-MiniLM-L6-v2` (80 MB, 384-dim) | Fast on CPU, well-known, good-enough semantic quality for ≤ 1000-chunk corpora |
 | **Vector DB** | FAISS `IndexFlatIP` (exact cosine) | Tiny corpora don't need HNSW/PQ approximations; exact search is fast enough and avoids the recall hit |
 | **Metadata store** | SQLite | Single-file, no daemon, perfect for an edge device; one DB roundtrip per query |
@@ -227,7 +237,7 @@ Two gates: (1) the retriever drops chunks below the cosine threshold (0.3 defaul
 ### "Why CPU only?"
 We deliberately avoided GPU acceleration because: (a) the Pi has no usable GPU; (b) our laptop's Intel iGPU isn't supported by llama.cpp's Vulkan backend in our build; (c) OpenBLAS on CPU is fast enough — a 200-token answer takes ~5-15 s, which is fine for an interactive demo.
 
-### "How is this an 'Edge IoT' project?"
+### "How is this an 'Edge' project?"
 The Phase 6 plan moves the entire stack onto a Raspberry Pi 5 (8 GB) with real GPIO sensors (DHT22 temperature/humidity + PIR motion). The config already has a `deployment.target` switch (`laptop` vs `raspberry_pi`) and the sensors source supports `real_serial`. The system can answer questions like *"Was anyone in the living room yesterday afternoon?"* by combining manual context (the sensor locations) with the 24-hour sensor summaries.
 
 ### "Why keyword rerank on top of dense retrieval?"

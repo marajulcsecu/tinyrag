@@ -112,12 +112,18 @@ DEFAULT_RESERVED_FOR_ANSWER_TOKENS = 512
 #:   Phi-3 from hallucinating citation slots [2], [3], ... [25]
 #:   to fill out a numbered list when only [1] was provided. This
 #:   was a real failure mode observed on a 1-chunk corpus where
-#:   the model invented 25 generic smart-home facts to pad the
-#:   citation list.
+#:   the model invented 25 generic facts to pad the citation list.
 #: - "Use complete sentences" discourages the model from producing
 #:   the stream-of-facts format that reads as broken in the UI.
+#:
+#: The opening line is deliberately **domain-neutral**. It previously
+#: read "a helpful assistant for a smart-home owner", which primed the
+#: model toward a domain the corpus need not have anything to do with —
+#: the retrieval pipeline accepts any document, and the same prompt now
+#: serves an algorithms textbook and an appliance manual equally.
 DEFAULT_SYSTEM_PROMPT = (
-    "You are a helpful assistant for a smart-home owner. "
+    "You are a helpful assistant that answers questions about the "
+    "user's documents. "
     "Answer the user's question using ONLY information from the "
     "numbered context blocks below. Use complete sentences. "
     "If the context blocks do not contain the answer, reply "

@@ -1,6 +1,6 @@
 # TinyRAG
 
-> A lightweight, fully on-device Retrieval-Augmented Generation (RAG) assistant for smart-home IoT — running on a Raspberry Pi 5, with **zero cloud calls**.
+> A lightweight, fully on-device Retrieval-Augmented Generation (RAG) assistant for your own documents — running on a Raspberry Pi 5, with **zero cloud calls**.
 
 ![CI](https://github.com/marajulcsecu/tinyrag/actions/workflows/ci.yml/badge.svg)
 ![Status](https://img.shields.io/badge/status-in%20development-yellow)
@@ -12,15 +12,15 @@
 
 ## What is TinyRAG?
 
-TinyRAG is a **privacy-preserving document assistant** that runs entirely on a small edge device. It reads any documents you give it — PDF, plain text, or Markdown — and answers natural-language questions about them using a **local** small language model (Llama 3.2 3B Instruct, Q4-quantized, served via llama.cpp). It can also summarise IoT sensor data (temperature, humidity, energy, motion) when a sensor source is configured, which is where the smart-home framing comes from; the retrieval pipeline itself is general-purpose.
+TinyRAG is a **privacy-preserving document assistant** that runs entirely on a small edge device. It reads any documents you give it — PDF, plain text, or Markdown — and answers natural-language questions about them using a **local** small language model (Llama 3.2 3B Instruct, Q4-quantized, served via llama.cpp). The retrieval pipeline is **domain-independent**: it has been exercised on everything from hardware manuals to a 1,313-page algorithms textbook. Optionally, it can also summarise time-series sensor data (temperature, humidity, energy, motion) when a sensor source is configured, so those readings can be queried through the same interface.
 
 **The entire pipeline runs offline.** Turn off your Wi-Fi — it still works.
 
 ### Example queries
 
-- *"How do I reset my Nest thermostat to factory settings?"* → answers from the Nest manual.
-- *"What was the average temperature in the living room this week?"* → answers from sensor logs.
-- *"Why is my energy bill higher than usual this month?"* → cross-references sensor data + home FAQ.
+- *"What is the worst-case running time of merge sort?"* → answers from an algorithms textbook, citing the page.
+- *"How do I reset my Nest thermostat to factory settings?"* → answers from an appliance manual.
+- *"What was the average temperature this week?"* → answers from sensor logs, when a sensor source is enabled.
 - *"What is the meaning of life?"* → correctly refuses with the fallback message.
 
 ---
@@ -188,6 +188,7 @@ tinyrag/
 │   ├── 04_database_design_v1.md  ← FAISS + SQLite + CSV
 │   ├── 05_tech_stack_v1.md       ← pinned versions
 │   ├── 06_roadmap_v2.md          ← 60-step plan (canonical)
+│   ├── PROJECT_OVERVIEW.md       ← start here if you're new (plain-English tour)
 │   ├── EXPLANATION.md            ← teacher-demo architecture deep-dive
 │   ├── DEMO_QUESTIONS.md         ← teacher-demo verified Q&A run-sheet
 │   └── evaluation/
@@ -208,11 +209,12 @@ tinyrag/
 
 **If you are new to this project, read in this order:**
 
-1. [`AGENT.md`](AGENT.md) — project context, decisions, status
-2. [`docs/00_high_level_plan.md`](docs/00_high_level_plan.md) — journey map
-3. [`docs/01_project_scope_v2.md`](docs/01_project_scope_v2.md) — what we're building
-4. [`docs/03_architecture_v1.md`](docs/03_architecture_v1.md) — how it's built
-5. [`docs/06_roadmap_v2.md`](docs/06_roadmap_v2.md) — when & how
+1. [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) — **start here**: a plain-English tour of the whole system (what it is, how retrieval/augmentation/generation work, tech choices + why, diagrams, and an advisor-Q&A cheat-sheet). Written for team members who did not write the code.
+2. [`AGENT.md`](AGENT.md) — project context, decisions, status
+3. [`docs/00_high_level_plan.md`](docs/00_high_level_plan.md) — journey map
+4. [`docs/01_project_scope_v2.md`](docs/01_project_scope_v2.md) — what we're building
+5. [`docs/03_architecture_v1.md`](docs/03_architecture_v1.md) — how it's built
+6. [`docs/06_roadmap_v2.md`](docs/06_roadmap_v2.md) — when & how
 
 **For the teacher demo / capstone presentation:**
 - [`docs/EXPLANATION.md`](docs/EXPLANATION.md) — architecture deep-dive with diagrams, engineering-decision rationale, anticipated Q&A.
@@ -253,7 +255,7 @@ MIT — see [`LICENSE`](LICENSE). You are free to use, modify, and distribute th
 ## Author
 
 **Marajul Haque** — Capstone student, advised by Abu Nowshed Chy.
-Built as a capstone project demonstrating edge AI, IoT, and LLM/RAG integration.
+Built as a capstone project demonstrating edge AI, on-device inference, and LLM/RAG integration.
 
 ---
 

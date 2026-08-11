@@ -1,6 +1,6 @@
 # TinyRAG — Model Catalog
 
-**Project Title:** TinyRAG — A Lightweight, On-Device Retrieval-Augmented Generation Assistant for Smart Home IoT
+**Project Title:** TinyRAG — A Lightweight, On-Device Retrieval-Augmented Generation Assistant for Edge Devices
 **Document version:** 1.0
 **Date:** 2026-06-23
 **Status:** Active

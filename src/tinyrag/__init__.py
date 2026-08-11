@@ -1,4 +1,4 @@
-"""TinyRAG — a privacy-preserving, fully on-device RAG system for smart homes.
+"""TinyRAG — a privacy-preserving, fully on-device RAG system for documents.
 
 TinyRAG (the project) = this Python package (``tinyrag``). It is a small,
 self-contained implementation of Retrieval-Augmented Generation designed to

@@ -141,8 +141,8 @@ DEFAULT_K_SENSOR = 2
 #: Default sensor-keyword set. Case-insensitive substring match
 #: (whole-word boundary checked). Picked from the architecture
 #: doc §6.5 ("temperature", "humidity", "energy", "kWh",
-#: "yesterday", "last week") plus a few obvious additions for a
-#: smart-home deployment.
+#: "yesterday", "last week") plus a few obvious additions for any
+#: sensor-equipped deployment.
 DEFAULT_SENSOR_KEYWORDS: frozenset[str] = frozenset({
     # measurement names
     "temperature", "temp", "humidity", "humid",
@@ -155,7 +155,12 @@ DEFAULT_SENSOR_KEYWORDS: frozenset[str] = frozenset({
     "last week", "last hour", "last day", "last night",
     "this morning", "this afternoon", "this evening",
     "right now", "at the moment",
-    # smart-home-specific phrasing
+    # present-tense "what is the current value" phrasing. Deliberately
+    # broad: these also match ordinary document questions ("what is the
+    # running time of merge sort"), but a false positive is harmless —
+    # matching only *widens* the candidate pool with sensor chunks,
+    # which then lose to document chunks on rerank score and threshold
+    # (doc hits win ties). It never suppresses document retrieval.
     "is the", "are the", "what's the", "whats the",
 })
 
