@@ -1,3 +1,18 @@
+# [SUSPENDED] TinyRAG — High-Level Plan & Project Journey
+
+> [!WARNING]
+> **STATUS: SUSPENDED / SUPERSEDED (Historical Reference Only — October 2026)**
+> This document belongs to an earlier, superseded project iteration (Smart Home IoT / Industrial Air-Gap).
+> Under the direct guidance of Supervisor Dr. Abu Nowshed Chy, the project has evolved into **AgriRAG: An On-Device, Offline Voice-to-Voice Agricultural RAG Assistant for Edge Devices**.
+> 
+> **Active Canonical Specifications:**
+> - Master Architecture: [`docs/AGRIRAG_ARCHITECTURE_SPECIFICATION.md`](AGRIRAG_ARCHITECTURE_SPECIFICATION.md)
+> - Active Implementation Roadmap: [`docs/07_agrirag_implementation_roadmap.md`](07_agrirag_implementation_roadmap.md)
+> 
+> Do **NOT** follow the specifications, schemas, or milestones in this document.
+
+---
+
 # TinyRAG — High-Level Plan & Project Journey
 
 > **Purpose of this document:** Give you a clear, beginner-friendly picture of the **entire journey** from "blank project" to "submitted capstone with a working demo." You don't need to understand every detail yet — this is the **map**. We'll fill in the details as we go, one document at a time.

@@ -1,3 +1,18 @@
+# [SUSPENDED] TinyRAG — Development Roadmap v1 [SUPERSEDED — HISTORICAL REFERENCE]
+
+> [!WARNING]
+> **STATUS: SUSPENDED / SUPERSEDED (Historical Reference Only — October 2026)**
+> This document belongs to an earlier, superseded project iteration (Smart Home IoT / Industrial Air-Gap).
+> Under the direct guidance of Supervisor Dr. Abu Nowshed Chy, the project has evolved into **AgriRAG: An On-Device, Offline Voice-to-Voice Agricultural RAG Assistant for Edge Devices**.
+> 
+> **Active Canonical Specifications:**
+> - Master Architecture: [`docs/AGRIRAG_ARCHITECTURE_SPECIFICATION.md`](AGRIRAG_ARCHITECTURE_SPECIFICATION.md)
+> - Active Implementation Roadmap: [`docs/07_agrirag_implementation_roadmap.md`](07_agrirag_implementation_roadmap.md)
+> 
+> Do **NOT** follow the specifications, schemas, or milestones in this document.
+
+---
+
 # TinyRAG — Development Roadmap v1 [SUPERSEDED — HISTORICAL REFERENCE]
 
 > **⚠️ This document is no longer the active roadmap.**
