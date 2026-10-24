@@ -63,7 +63,10 @@ import pytest
 # Path setup so the test can import both ``tinyrag.main`` (the composition
 # root) and the same fixture helpers test_ask.py uses.
 # ---------------------------------------------------------------------------
-SRC = Path(__file__).resolve().parent.parent / "src"
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 

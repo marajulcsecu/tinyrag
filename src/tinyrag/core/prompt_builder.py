@@ -296,6 +296,7 @@ class PromptBuilder:
         *,
         max_prompt_tokens: int = DEFAULT_MAX_PROMPT_TOKENS,
         reserved_for_answer_tokens: int = DEFAULT_RESERVED_FOR_ANSWER_TOKENS,
+        system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     ) -> PromptBuilder:
         """Build a :class:`PromptBuilder` whose encoding matches the chunker.
 
@@ -308,6 +309,7 @@ class PromptBuilder:
             encoding_name=chunking.encoding,
             max_prompt_tokens=max_prompt_tokens,
             reserved_for_answer_tokens=reserved_for_answer_tokens,
+            system_prompt=system_prompt,
         )
 
     def count_tokens(self, text: str) -> int:

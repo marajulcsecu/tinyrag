@@ -119,6 +119,26 @@ class ModelEntry:
 
 MODEL_REGISTRY: Mapping[str, ModelEntry] = {
     # -----------------------------------------------------------------
+    # PRIMARY — Google Gemma 4 E2B Instruct (AgriRAG Canonical LLM)
+    # -----------------------------------------------------------------
+    "gemma-4-E2B-it": ModelEntry(
+        model_id="gemma-4-E2B-it",
+        display_name="Google Gemma 4 E2B Instruct (Q4_0)",
+        hf_repo="ggml-org/gemma-4-E2B-it-GGUF",
+        hf_filename="gemma-4-E2B-it-Q4_0.gguf",
+        quantization="Q4_0",
+        expected_size_bytes=2_840_000_000,  # ~2.84 GB
+        expected_sha256="",
+        license="Gemma",
+        role="primary",
+        intended_context=8192,
+        notes=(
+            "PRIMARY LLM for AgriRAG on edge hardware (Raspberry Pi 5 / Laptop). "
+            "Native 256k vocabulary with rich Bengali subwords, fast CPU inference, "
+            "and strict factual grounding for agricultural advisory."
+        ),
+    ),
+    # -----------------------------------------------------------------
     # EVAL B — was PRIMARY until 2026-07-23.
     #
     # Demoted because this GGUF emits garbage tokens once the prompt

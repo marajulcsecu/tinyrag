@@ -78,9 +78,38 @@ Location: ``src/tinyrag/ingestion/parsers.py``
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+_BIJOY_MARKERS: frozenset[str] = frozenset(
+    "‡†ÿ¡¢£¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþ"
+)
+
+def _normalize_bengali_text(text: str) -> str:
+    """Detect and convert legacy Bijoy/SutonnyMJ text to Unicode UTF-8 and apply NFC normalization.
+
+    Plain English text is strictly preserved; conversion is only attempted when
+    signature SutonnyMJ non-ASCII glyph markers (e.g. ‡, †, ÿ) are present.
+    """
+    if not text:
+        return text
+
+    # Check if text is already Unicode Bengali
+    bengali_unicode_count = len(re.findall(r"[\u0980-\u09FF]", text))
+    if bengali_unicode_count < 20 and any(c in _BIJOY_MARKERS for c in text):
+        try:
+            from bijoy2unicode import converter
+            conv = converter.Unicode()
+            converted = conv.convertBijoyToUnicode(text)
+            conv_bengali = len(re.findall(r"[\u0980-\u09FF]", converted))
+            if conv_bengali > 10 and conv_bengali > bengali_unicode_count * 2:
+                text = converted
+        except Exception:
+            pass
+
+    return unicodedata.normalize("NFC", text)
 
 # PyMuPDF (fitz) is the heaviest dependency in the ingestion path.
 # We import it lazily inside PdfParser.parse() so a Markdown-only or
@@ -285,7 +314,7 @@ class PdfParser:
                     page_text = "\n".join(
                         b[4].strip() for b in blocks if b[4].strip()
                     )
-                    pages.append((one_based_idx, page_text))
+                    pages.append((one_based_idx, _normalize_bengali_text(page_text)))
         except Exception as exc:  # PyMuPDF raises fitz.FileDataError etc.
             raise PdfReadError(
                 f"PyMuPDF failed to read {path}: {exc}", path=path
@@ -442,6 +471,7 @@ class MarkdownParser:
         text = _FRONTMATTER_RE.sub("", raw)
         text = _IMAGE_RE.sub(r"\1", text)
         text = _LINK_RE.sub(r"\1", text)
+        text = _normalize_bengali_text(text)
 
         if not text.strip():
             raise EmptyDocumentError(

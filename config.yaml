@@ -66,7 +66,8 @@ llm:
   # coherent at the same sizes on the identical llama-server binary
   # (verified needle retrieval at 3031 tokens). Keep in sync with
   # run.sh's LLM_GGUF default and LLMSettings.model_path.
-  model_path: models/llama-3.2-3b.gguf
+  # PRIMARY LLM for AgriRAG (Google Gemma 4 E2B Instruct)
+  model_path: models/gemma-4-E2B-it.gguf
 
   # llama-server OpenAI-compatible endpoint.
   # The Phase 3 smoke test (`make smoke-e2e`) hits this URL.
@@ -75,7 +76,7 @@ llm:
   # Context window passed to llama-server's `--ctx-size`. 4096 is
   # the sweet spot for Phi-3 Mini; raise to 8192 if you see
   # "context overflow" warnings (rare).
-  context_size: 4096
+  context_size: 8192
 
   # HTTP timeout for one llama-server call, in seconds.
   #
@@ -104,10 +105,10 @@ llm:
   gpu_layers: 0
 
 embedding:
-  # sentence-transformers model id. all-MiniLM-L6-v2 is 80 MB,
-  # 384-dim, English-only, fast on CPU. Swap to bge-small-en-v1.5
-  # (better quality, similar size) by changing this key.
-  model_name: sentence-transformers/all-MiniLM-L6-v2
+  # sentence-transformers model id. paraphrase-multilingual-MiniLM-L12-v2
+  # is 470 MB, 384-dim, multilingual (supports 50+ languages including Bengali),
+  # fast on CPU.
+  model_name: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 
   # "cpu" | "cuda" | "mps". TinyRAG is CPU-only by design — both
   # the laptop and Pi lack a usable GPU for embeddings.
@@ -124,9 +125,7 @@ embedding:
   cache_dir: models/_hf_cache
 
 chunking:
-  # Target tokens per chunk. 400 fits ~1-2 paragraphs of English
-  # prose — small enough to fit several chunks in the LLM context
-  # window, large enough to keep semantic coherence.
+  # Target tokens per chunk. 400 fits ~1-2 paragraphs of text.
   chunk_size: 400
 
   # Overlap between consecutive chunks (tokens). 50 (~12%) prevents

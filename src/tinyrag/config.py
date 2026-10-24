@@ -297,6 +297,10 @@ class LLMSettings(BaseModel):
         le=100,
         description="Layers to offload to GPU. 0 = CPU-only.",
     )
+    system_prompt: str | None = Field(
+        default=None,
+        description="Optional custom system prompt override.",
+    )
 
 
 class EmbeddingSettings(BaseModel):
@@ -310,7 +314,7 @@ class EmbeddingSettings(BaseModel):
     )
 
     model_name: str = Field(
-        default="sentence-transformers/all-MiniLM-L6-v2",
+        default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         description="sentence-transformers model id (HF hub or local path).",
     )
     device: EmbeddingDevice = Field(

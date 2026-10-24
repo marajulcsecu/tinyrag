@@ -453,12 +453,26 @@
     function renderDonePayload(bubble, answer) {
         bubble.dataset.state = "complete";
 
-        // Wrap text in a <p> so the CSS .bubble p margins apply.
-        const text = typeof answer.text === "string" ? answer.text : "";
+        // Preserve clean streamed text or take server answer text
+        const streamed = bubble.textContent ? bubble.textContent.trim() : "";
+        let text = typeof answer.text === "string" ? answer.text.trim() : "";
+        if (!text && streamed) {
+            text = streamed;
+        }
         bubble.textContent = "";
-        const p = document.createElement("p");
-        p.textContent = text;
-        bubble.appendChild(p);
+        const paragraphs = text.split(/\n\s*\n/);
+        for (const para of paragraphs) {
+            if (para.trim()) {
+                const p = document.createElement("p");
+                p.textContent = para.trim();
+                bubble.appendChild(p);
+            }
+        }
+        if (bubble.children.length === 0) {
+            const p = document.createElement("p");
+            p.textContent = text;
+            bubble.appendChild(p);
+        }
 
         // Source cards — only render if we actually retrieved
         // something. Empty arrays are common for a "I don't know"
