@@ -96,7 +96,7 @@ from tinyrag.api.routes_admin import build_admin_router
 from tinyrag.api.routes_docs import build_docs_router
 from tinyrag.api.routes_query import build_query_router
 from tinyrag.config import Settings, load_settings
-from tinyrag.core.prompt_builder import PromptBuilder
+from tinyrag.core.prompt_builder import BENGALI_AGRIRAG_SYSTEM_PROMPT, PromptBuilder
 from tinyrag.core.retriever import Retriever, adapt_metadata_store
 from tinyrag.generation.llm_client import (
     LlamaCppClient,
@@ -248,6 +248,7 @@ def create_app(
         #    the same units.
         prompt_builder = PromptBuilder.from_chunking_settings(
             settings.chunking,
+            system_prompt=settings.llm.system_prompt or BENGALI_AGRIRAG_SYSTEM_PROMPT,
         )
 
         # 7. Stash everything on app.state so the dependency

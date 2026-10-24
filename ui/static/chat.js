@@ -58,6 +58,8 @@
     let sendBtnEl = null;
     let statusPillEl = null;
     let modelNameEl = null;
+    let micBtnEl = null;
+    let ttsToggleEl = null;
 
     // ----------------------------------------------------------------
     // Status polling
@@ -453,12 +455,43 @@
     function renderDonePayload(bubble, answer) {
         bubble.dataset.state = "complete";
 
-        // Wrap text in a <p> so the CSS .bubble p margins apply.
-        const text = typeof answer.text === "string" ? answer.text : "";
+        // Preserve clean streamed text or take server answer text
+        const streamed = bubble.textContent ? bubble.textContent.trim() : "";
+        let text = typeof answer.text === "string" ? answer.text.trim() : "";
+        if (!text && streamed) {
+            text = streamed;
+        }
         bubble.textContent = "";
-        const p = document.createElement("p");
-        p.textContent = text;
-        bubble.appendChild(p);
+        const paragraphs = text.split(/\n\s*\n/);
+        for (const para of paragraphs) {
+            if (para.trim()) {
+                const p = document.createElement("p");
+                p.textContent = para.trim();
+                bubble.appendChild(p);
+            }
+        }
+        if (bubble.children.length === 0) {
+            const p = document.createElement("p");
+            p.textContent = text;
+            bubble.appendChild(p);
+        }
+
+        // Audio replay button for voice-to-voice interaction
+        if (text.trim()) {
+            const audioBar = document.createElement("div");
+            audioBar.className = "bubble-audio-bar";
+            const replayBtn = document.createElement("button");
+            replayBtn.type = "button";
+            replayBtn.className = "btn-replay-audio";
+            replayBtn.innerHTML = "🔊 বাংলায় শুনুন";
+            replayBtn.title = "কৃষি পরামর্শ মুখে শুনুন";
+            replayBtn.addEventListener("click", () => speakText(text));
+            audioBar.appendChild(replayBtn);
+            bubble.appendChild(audioBar);
+
+            // Automatically speak if TTS toggle is active
+            speakText(text);
+        }
 
         // Source cards — only render if we actually retrieved
         // something. Empty arrays are common for a "I don't know"
@@ -472,7 +505,7 @@
             sourcesWrap.className = "sources";
             const header = document.createElement("div");
             header.className = "sources-header";
-            header.textContent = `Sources (${citations.length})`;
+            header.textContent = `উৎস নথিপত্র (${citations.length})`;
             sourcesWrap.appendChild(header);
             for (const cit of citations) {
                 sourcesWrap.appendChild(buildSourceCard(cit));
@@ -485,6 +518,58 @@
         bubble.appendChild(buildDiagnostics(answer));
 
         scrollToBottom();
+    }
+
+    /**
+     * Clean raw response markdown text for natural Bengali speech synthesis.
+     */
+    function cleanTextForSpeech(raw) {
+        if (!raw) return "";
+        return raw
+            .replace(/```[\s\S]*?```/g, "")
+            .replace(/`([^`]+)`/g, "$1")
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+            .replace(/[*_#~]/g, "")
+            .replace(/\[\s*\d+(?:\s*,\s*\d+)*\s*\]/g, "")
+            .replace(/\[উৎস:[^\]]+\]/g, "")
+            .replace(/উৎস:\s*[^।\n]+/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    /**
+     * Speak Bengali text aloud using window.speechSynthesis.
+     */
+    function speakText(rawText) {
+        if (!("speechSynthesis" in window)) {
+            return;
+        }
+        if (ttsToggleEl && !ttsToggleEl.checked) {
+            return;
+        }
+        window.speechSynthesis.cancel();
+
+        const clean = cleanTextForSpeech(rawText);
+        if (!clean) return;
+
+        const utterance = new SpeechSynthesisUtterance(clean);
+        utterance.lang = "bn-BD";
+        utterance.rate = 0.95;
+        utterance.pitch = 1.0;
+
+        const voices = window.speechSynthesis.getVoices();
+        const bnVoice = voices.find(
+            (v) =>
+                v.lang.startsWith("bn") ||
+                v.lang.toLowerCase().includes("bangla") ||
+                v.name.toLowerCase().includes("bengali") ||
+                v.name.toLowerCase().includes("bangla")
+        );
+        if (bnVoice) {
+            utterance.voice = bnVoice;
+        }
+
+        window.speechSynthesis.speak(utterance);
     }
 
     /**
@@ -619,6 +704,107 @@
     }
 
     // ----------------------------------------------------------------
+    // Voice-to-Voice: Speech-to-Text (STT) via Web Speech API
+    // ----------------------------------------------------------------
+
+    let recognition = null;
+    let isRecognizing = false;
+    let finalTranscript = "";
+
+    function initSpeechRecognition() {
+        const SpeechRecognition =
+            window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            if (micBtnEl) {
+                micBtnEl.title = "আপনার ব্রাউজারে ভয়েস রিকগনিশন সাপোর্ট নেই (Chrome/Edge ব্যবহার করুন)";
+                micBtnEl.style.opacity = "0.5";
+            }
+            return;
+        }
+
+        try {
+            recognition = new SpeechRecognition();
+            recognition.lang = "bn-BD"; // Bengali (Bangladesh)
+            recognition.continuous = true;
+            recognition.interimResults = true;
+
+            recognition.onstart = function () {
+                isRecognizing = true;
+                finalTranscript = queryEl.value ? queryEl.value.trim() + " " : "";
+                if (micBtnEl) {
+                    micBtnEl.classList.add("recording");
+                    micBtnEl.title = "কথা বলা শেষ হলে আবার মাইক বাটনে চাপুন";
+                }
+                if (queryEl) {
+                    queryEl.placeholder = "🎤 শুনছি... বাংলায় আপনার পুরো সমস্যার কথা বলুন (শেষ হলে মাইক বাটনে বা পাঠানে ক্লিক করুন)...";
+                }
+            };
+
+            recognition.onresult = function (event) {
+                let interim = "";
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    const text = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += text + " ";
+                    } else {
+                        interim += text;
+                    }
+                }
+                if (queryEl) {
+                    queryEl.value = (finalTranscript + interim).trim();
+                }
+            };
+
+            recognition.onerror = function (event) {
+                // eslint-disable-next-line no-console
+                console.warn("[AgriRAG] Speech recognition error:", event.error);
+                stopSpeechRecognition();
+            };
+
+            recognition.onend = function () {
+                stopSpeechRecognition();
+                // Never auto-submit on pause! Allow the user to review what was transcribed
+                // and click "পাঠান" (Send) or press Enter whenever they are ready.
+            };
+
+            if (micBtnEl) {
+                micBtnEl.addEventListener("click", toggleSpeechRecognition);
+            }
+        } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn("[AgriRAG] Speech recognition init failed:", err);
+        }
+    }
+
+    function toggleSpeechRecognition() {
+        if (!recognition) return;
+        if (isRecognizing) {
+            recognition.stop();
+        } else {
+            try {
+                if ("speechSynthesis" in window) {
+                    window.speechSynthesis.cancel();
+                }
+                recognition.start();
+            } catch (err) {
+                // eslint-disable-next-line no-console
+                console.warn("[AgriRAG] recognition start failed:", err);
+            }
+        }
+    }
+
+    function stopSpeechRecognition() {
+        isRecognizing = false;
+        if (micBtnEl) {
+            micBtnEl.classList.remove("recording");
+            micBtnEl.title = "ভয়েস ইনপুট (বাংলায় কথা বলুন)";
+        }
+        if (queryEl) {
+            queryEl.placeholder = "ফসলের রোগ বা সমস্যা সম্পর্কে বলুন বা লিখুন… (যেমন: ধানের পাতা পোড়া রোগে কী স্প্রে করব?)";
+        }
+    }
+
+    // ----------------------------------------------------------------
     // Wire-up (runs once on DOMContentLoaded)
     // ----------------------------------------------------------------
 
@@ -629,6 +815,8 @@
         sendBtnEl = document.getElementById("send");
         statusPillEl = document.getElementById("status-pill");
         modelNameEl = document.getElementById("model-name");
+        micBtnEl = document.getElementById("mic-btn");
+        ttsToggleEl = document.getElementById("tts-toggle");
 
         if (
             !messagesEl ||
@@ -645,9 +833,29 @@
 
         composerEl.addEventListener("submit", onSubmit);
 
-        // Enter-to-send is already handled by the form's implicit
-        // submit on Enter inside a textarea (Shift+Enter inserts a
-        // newline). No extra keydown handler needed.
+        // Enter-to-send in textarea (Shift+Enter inserts a newline)
+        queryEl.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                composerEl.requestSubmit();
+            }
+        });
+
+        // Initialize Web Speech STT
+        initSpeechRecognition();
+
+        // Wire up quick suggestion chips (Exhibition demo mode)
+        const chips = document.querySelectorAll(".quick-chips .chip");
+        chips.forEach((chip) => {
+            chip.addEventListener("click", () => {
+                const q = chip.getAttribute("data-query");
+                if (q && queryEl) {
+                    queryEl.value = q;
+                    queryEl.focus();
+                    composerEl.requestSubmit();
+                }
+            });
+        });
 
         // Kick off status polling. The first call also acts as our
         // "page is alive" check — if /api/status 5xx's, the pill

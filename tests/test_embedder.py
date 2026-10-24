@@ -395,28 +395,38 @@ class TestSentenceTransformerEmbedderReal:
     """
 
     def test_dimension_is_384(self, tmp_path: Path) -> None:
-        emb = SentenceTransformerEmbedder(_make_settings(tmp_path))
+        emb = SentenceTransformerEmbedder(
+            _make_settings(tmp_path, cache_dir=_DEFAULT_CACHE_DIR)
+        )
         assert emb.dimension == _DEFAULT_DIM
         assert emb.is_loaded is True
 
     def test_embed_returns_one_vector_per_input(
         self, tmp_path: Path
     ) -> None:
-        emb = SentenceTransformerEmbedder(_make_settings(tmp_path))
+        emb = SentenceTransformerEmbedder(
+            _make_settings(tmp_path, cache_dir=_DEFAULT_CACHE_DIR)
+        )
         vecs = emb.embed(["hello world", "goodbye world"])
         assert len(vecs) == 2
         for v in vecs:
             assert len(v) == _DEFAULT_DIM
 
     def test_vectors_are_l2_normalised(self, tmp_path: Path) -> None:
-        emb = SentenceTransformerEmbedder(_make_settings(tmp_path))
+        emb = SentenceTransformerEmbedder(
+            _make_settings(tmp_path, cache_dir=_DEFAULT_CACHE_DIR)
+        )
         for v in emb.embed(["some text", "another phrase", "yet another"]):
             norm = math.sqrt(sum(x * x for x in v))
             assert abs(norm - 1.0) < 1e-3, f"expected unit norm, got {norm}"
 
     def test_vectors_are_deterministic(self, tmp_path: Path) -> None:
-        emb1 = SentenceTransformerEmbedder(_make_settings(tmp_path))
-        emb2 = SentenceTransformerEmbedder(_make_settings(tmp_path))
+        emb1 = SentenceTransformerEmbedder(
+            _make_settings(tmp_path, cache_dir=_DEFAULT_CACHE_DIR)
+        )
+        emb2 = SentenceTransformerEmbedder(
+            _make_settings(tmp_path, cache_dir=_DEFAULT_CACHE_DIR)
+        )
         v1 = emb1.embed(["the quick brown fox jumps over the lazy dog"])
         v2 = emb2.embed(["the quick brown fox jumps over the lazy dog"])
         # Different model instances, but the same model id and the
@@ -433,7 +443,9 @@ class TestSentenceTransformerEmbedderReal:
         vectors, but that they carry semantic meaning (a property
         FakeEmbedder does NOT have, by design).
         """
-        emb = SentenceTransformerEmbedder(_make_settings(tmp_path))
+        emb = SentenceTransformerEmbedder(
+            _make_settings(tmp_path, cache_dir=_DEFAULT_CACHE_DIR)
+        )
         vecs = emb.embed(
             [
                 "how do I reset the thermostat?",
@@ -460,10 +472,10 @@ class TestSentenceTransformerEmbedderReal:
         correctness.
         """
         emb_small = SentenceTransformerEmbedder(
-            _make_settings(tmp_path, batch_size=1)
+            _make_settings(tmp_path, cache_dir=_DEFAULT_CACHE_DIR, batch_size=1)
         )
         emb_large = SentenceTransformerEmbedder(
-            _make_settings(tmp_path, batch_size=8)
+            _make_settings(tmp_path, cache_dir=_DEFAULT_CACHE_DIR, batch_size=8)
         )
         texts = ["alpha", "beta", "gamma", "delta"]
         v_small = emb_small.embed(texts)
@@ -475,13 +487,16 @@ class TestSentenceTransformerEmbedderReal:
                 assert abs(x - y) < 1e-5
 
     def test_empty_list_short_circuits(self, tmp_path: Path) -> None:
-        emb = SentenceTransformerEmbedder(_make_settings(tmp_path))
+        emb = SentenceTransformerEmbedder(
+            _make_settings(tmp_path, cache_dir=_DEFAULT_CACHE_DIR)
+        )
         assert emb.embed([]) == []
 
     def test_unicode_text_is_embedded(self, tmp_path: Path) -> None:
-        """Embedding model is English-trained, but must accept UTF-8
-        input without raising (degraded quality is acceptable)."""
-        emb = SentenceTransformerEmbedder(_make_settings(tmp_path))
+        """Embedding model accepts UTF-8 input without raising."""
+        emb = SentenceTransformerEmbedder(
+            _make_settings(tmp_path, cache_dir=_DEFAULT_CACHE_DIR)
+        )
         vecs = emb.embed(["café", "日本語", "বাংলা"])
         assert len(vecs) == 3
         for v in vecs:

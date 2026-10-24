@@ -495,6 +495,15 @@ class Retriever:
                 f"doc_store.search failed: {exc}"
             ) from exc
 
+        # 3.5. Sparse FTS5 BM25 search (Dual-Hybrid Retrieval)
+        sparse_hits: list[tuple[str, float]] = []
+        if hasattr(self.metadata, "search_chunks_fts"):
+            try:
+                sparse_hits = self.metadata.search_chunks_fts(query, limit=rerank_fetch)
+            except Exception as exc:
+                logger.warning("FTS search failed: %s", exc)
+                sparse_hits = []
+
         # 4. Sensor index search (only if keywords matched).
         # Over-fetch sensor candidates so the whole-word rerank
         # (step 6.5) can rescue the correct summary — same mechanism
@@ -527,7 +536,7 @@ class Retriever:
                     f"sensor_store.search failed: {exc}"
                 ) from exc
 
-        # 5. Merge doc + sensor hits, keeping the highest score per id.
+        # 5. Merge doc + sensor + sparse FTS hits, keeping the highest score per id.
         # We track per-id whether the survivor came from the sensor
         # path (so used_sensor_idx is correct after threshold filter).
         merged: dict[str, float] = {}
@@ -546,6 +555,10 @@ class Retriever:
                 # First time we see this id — it came from sensor.
                 merged[cid] = score
                 from_sensor.add(cid)
+        for cid, _bm25_val in sparse_hits:
+            if cid not in merged:
+                # Seed with a solid relevance floor so candidates outside top dense hits enter pool
+                merged[cid] = 0.50
 
         # 6. Resolve ids → chunk records via the metadata accessor.
         ids_in_score_order = sorted(
@@ -564,32 +577,13 @@ class Retriever:
         # skipped — they won't appear in chunk_records.
         records_by_id = {rec.id: rec for rec in chunk_records}
 
-        # 6.5. Keyword-overlap rerank (a poor-man's BM25 booster).
-        # Dense MiniLM embeddings are noisy on short technical
-        # queries against mixed corpora (e.g. "What is the ErP
-        # directive?" — the TOC chunk that just *mentions* "ErP
-        # class 26" outscores the actual ErP content chunk). The
-        # fix is a cheap lexical bonus: extract distinctive
-        # non-stopword tokens from the query, count how many appear
-        # in each chunk's text, and add a per-hit bonus to the
-        # dense score.
-        #
-        # The boost is computed as ``BASE_PER_TERM * matches +
-        # FULL_COVERAGE_BONUS when matches == total_terms`` —
-        # i.e. a chunk that contains ALL the query's distinctive
-        # terms gets a flat bonus on top of the per-term additions,
-        # because "every query term is here" is a much stronger
-        # relevance signal than "one query term is here". Empirically
-        # this lifts the ErP content chunk from FAISS rank #18 to
-        # top-1 because the TOC chunk only matches "erp" (1 term,
-        # +0.10) while the ErP content matches both "erp" + "directive"
-        # (2 terms + coverage bonus, +0.30 total).
-        #
-        # This is NOT a full BM25 implementation — we don't do IDF
-        # weighting or document-frequency lookups. It's a deliberate
-        # trade: a small, well-defined constant that fixes the most
-        # common dense-only retrieval failure mode without taking on
-        # a new dependency.
+        # 6.5. Dual-Hybrid BM25 + Keyword-overlap rerank.
+        if sparse_hits:
+            for rank_idx, (cid, _) in enumerate(sparse_hits):
+                if cid in merged:
+                    boost = max(0.05, 0.45 - (rank_idx * 0.04))
+                    merged[cid] = merged[cid] + boost
+
         query_terms = _distinctive_query_terms(query)
         if query_terms:
             base_per_term = 0.10
@@ -600,21 +594,8 @@ class Retriever:
                 rec_text = records_by_id[cid].text
                 if not rec_text:
                     continue
-                # WHOLE-WORD matching, NOT substring. A naive
-                # ``term in rec_text.lower()`` counts "rag" inside
-                # "sto*rag*e" / "cove*rag*e" as a hit — on the query
-                # "What is RAG?" that spuriously boosted a Nest
-                # warranty chunk to rank #1 (dense 0.098 + 0.10 +
-                # 0.20 coverage = 0.398), above the real rag.txt
-                # answer (0.360). See the 2026-07-22 rerank trace.
-                # We tokenise the chunk with the same word regex used
-                # for the query terms so hyphenated tokens
-                # ("non-blocking") stay whole on both sides, then do
-                # set membership — O(chunk) once, and correct.
-                rec_words = {
-                    m.group(1).lower()
-                    for m in _KEYWORD_BOUNDARY_RE.finditer(rec_text)
-                }
+                raw_rec_tokens = re.split(r"[\s\.,!?;:।॥\(\)\[\]\"'/\\]+", rec_text)
+                rec_words = {w.strip().lower() for w in raw_rec_tokens if len(w.strip()) >= 2}
                 matches = sum(1 for t in query_terms if t in rec_words)
                 if matches:
                     boost = base_per_term * matches
@@ -754,26 +735,19 @@ _RERANK_STOPWORDS: frozenset[str] = frozenset({
 def _distinctive_query_terms(query: str) -> list[str]:
     """Extract the lowercased, stopword-filtered tokens from ``query``.
 
-    Used by the keyword-overlap rerank step (see
-    :meth:`Retriever.retrieve`). Returns an empty list when the
-    query has no distinctive terms (e.g. just stopwords).
-
-    Tokens are whole-word alphabetic runs (so "OpenTherm" stays
-    one token, "non-blocking" splits on the hyphen). Length ≥ 3
-    so we skip 1-2 letter words like "I", "a" defensively even if
-    they slipped past the stopword list.
+    Supports both English and Bengali script words. Punctuation including
+    Bengali Dari (। \u0964) and double-dari (॥ \u0965) are treated as
+    token separators.
     """
     if not query:
         return []
+    raw_tokens = re.split(r"[\s\.,!?;:।॥\(\)\[\]\"'/\\]+", query)
     tokens: list[str] = []
-    for m in _KEYWORD_BOUNDARY_RE.finditer(query):
-        word = m.group(1).lower()
-        if len(word) >= 3 and word not in _RERANK_STOPWORDS:
+    for raw in raw_tokens:
+        word = raw.strip().lower()
+        if len(word) >= 2 and word not in _RERANK_STOPWORDS:
             tokens.append(word)
-    # Dedupe while preserving first-seen order (deterministic for
-    # tests). Returned list is used for substring matching against
-    # chunk text, not scoring, so order doesn't matter for the
-    # algorithm — only for test reproducibility.
+    # Dedupe while preserving first-seen order
     seen: set[str] = set()
     out: list[str] = []
     for t in tokens:
@@ -832,6 +806,13 @@ class _MetadataStoreAdapter:
 
     def get_document(self, document_id: str):
         return self._store.get_document(document_id)
+
+    def search_chunks_fts(
+        self, query: str, limit: int = 50
+    ) -> list[tuple[str, float]]:
+        if hasattr(self._store, "search_chunks_fts"):
+            return self._store.search_chunks_fts(query, limit)
+        return []
 
 
 def adapt_metadata_store(store: MetadataStore) -> MetadataAccessor:

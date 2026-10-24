@@ -157,8 +157,8 @@ _SENTENCE_TRIM_FRACTION = 0.20
 # Characters that end a sentence. We don't split on every period
 # (e.g. "Dr. Smith", "3.14") — we only trim when the period is
 # followed by whitespace or end-of-text, which is a reasonable
-# approximation. The same pattern is used by langchain's
-# ``SentenceTransformersTokenTextSplitter`` and others.
+# approximation. We also support the Bengali Dari (। \u0964) and
+# double-dari (॥ \u0965) for multilingual AgriRAG support.
 #
 # Note: the regex is a "raw" string (``r"..."``); the inner ``\s``
 # is a regex escape, not a Python string escape.
@@ -167,7 +167,7 @@ _SENTENCE_TRIM_FRACTION = 0.20
 # *asserts* that the next character is whitespace, a quote, or
 # end-of-text, but doesn't *consume* it. That way the match end
 # is right after the punctuation — exactly where we want to trim.
-_SENTENCE_END_RE = re.compile(r"[.!?](?=[\s\"']|$)")
+_SENTENCE_END_RE = re.compile(r"(?:[.!?।॥]|\n\n)(?=[\s\"']|$)")
 
 
 class Chunker:
@@ -358,7 +358,7 @@ class Chunker:
 
             # ---- Step 3: decode & record --------------------------------
             chunk_token_ids = token_ids[start:trimmed_end]
-            chunk_text = self._encoding.decode(chunk_token_ids)
+            chunk_text = self._encoding.decode(chunk_token_ids).strip("\ufffd\r\n\t ")
             if not chunk_text.strip():
                 # Defensive: shouldn't happen because the input
                 # wasn't whitespace-only, but if a trim produced
@@ -444,23 +444,25 @@ class Chunker:
         # left-to-right order; we walk them in reverse.
         matches = list(_SENTENCE_END_RE.finditer(slice_text))
         if not matches:
-            return end
-        # Pick the last match. The match's end is the position in
-        # ``slice_text`` just after the terminator character; we
-        # don't need exact token alignment (we re-decode later),
-        # so we approximate by character count.
-        last_match = matches[-1]
-        char_pos_in_slice = last_match.end()
+            # Fall back to whitespace so we never slice in the middle of a word or UTF-8 character
+            ws_matches = list(re.finditer(r"\s+", slice_text))
+            if not ws_matches:
+                return end
+            char_pos_in_slice = ws_matches[-1].end()
+        else:
+            # Pick the last match. The match's end is the position in
+            # ``slice_text`` just after the terminator character; we
+            # don't need exact token alignment (we re-decode later),
+            # so we approximate by character count.
+            char_pos_in_slice = matches[-1].end()
 
         # Convert the character position back to a token index.
-        # We re-decode progressively until our decoded text
-        # reaches ``char_pos_in_slice`` characters — this gives a
-        # tight, exact token boundary.
-        cumulative = 0
+        # We decode prefix slices from ``left`` to avoid breaking
+        # multi-byte UTF-8 sequences (which produce replacement characters
+        # when decoded as isolated tokens).
         for tok_idx in range(left, end):
-            tok_text = self._encoding.decode([token_ids[tok_idx]])
-            cumulative += len(tok_text)
-            if cumulative >= char_pos_in_slice:
+            prefix_text = self._encoding.decode(token_ids[left : tok_idx + 1])
+            if len(prefix_text) >= char_pos_in_slice:
                 return tok_idx + 1
         return end
 

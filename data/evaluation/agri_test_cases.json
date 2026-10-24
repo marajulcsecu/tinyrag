@@ -1,0 +1,227 @@
+[
+  {
+    "id": "AGRI-Q01",
+    "query": "আলুর নাবি ধসা রোগ দমনে কী ওষুধ স্প্রে করতে হয়?",
+    "expected_keywords": ["রিডোমিল গোল্ড", "ম্যানকোজেব", "মেটাল্যাক্সিল", "কার্জেট"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "disease_control",
+    "difficulty": "easy",
+    "notes": "Late Blight of Potato chemical management from BARI manual."
+  },
+  {
+    "id": "AGRI-Q02",
+    "query": "ধানের ব্লাস্ট রোগ প্রতিরোধে কোন ছত্রাকনাশক ব্যবহার করব?",
+    "expected_keywords": ["ট্রাইসাইক্লাজোল", "ট্রুপার", "অ্যামিস্টার টপ", "কার্বেনডাজিম"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "disease_control",
+    "difficulty": "easy",
+    "notes": "Rice Blast control from BRRI guidelines."
+  },
+  {
+    "id": "AGRI-Q03",
+    "query": "বেগুনের ডগা ও ফল ছিদ্রকারী পোকা দমনে কোন ফাঁদ ব্যবহার করতে হয়?",
+    "expected_keywords": ["সেক্স ফেরোমোন", "ফাঁদ", "১২-১৫টি"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "pest_management",
+    "difficulty": "easy",
+    "notes": "Eggplant fruit and shoot borer IPM via sex pheromone trap."
+  },
+  {
+    "id": "AGRI-Q04",
+    "query": "বিঘা প্রতি জমিতে আলুর ইউরিয়া ও পটাশ সারের মাত্রা কত?",
+    "expected_keywords": ["৩৫-৪০", "৩০-৩৫", "ইউরিয়া", "এমওপি"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "fertilizer_dosage",
+    "difficulty": "medium",
+    "notes": "Fertilizer dosage for potato cultivation per bigha."
+  },
+  {
+    "id": "AGRI-Q05",
+    "query": "কীটনাশক স্প্রে করার পর কতদিন পর্যন্ত সবজি বা ফসল তোলা যাবে না?",
+    "expected_keywords": ["৭", "১৫", "নিরাপদ", "দিন"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "pesticide_safety",
+    "difficulty": "easy",
+    "notes": "Pre-Harvest Interval (PHI) safety regulation."
+  },
+  {
+    "id": "AGRI-Q06",
+    "query": "ধানের হলুদ মাজরা পোকার আক্রমণ হলে কী লক্ষণ দেখা যায়?",
+    "expected_keywords": ["মৃতদেহলী", "ডেডহার্ট", "সাদা শীষ", "হোয়াইটহেড"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "pest_symptoms",
+    "difficulty": "medium",
+    "notes": "Yellow stem borer symptom recognition."
+  },
+  {
+    "id": "AGRI-Q07",
+    "query": "ধানের বাদামী গাছফড়িং বা কারেন্ট পোকা দমনে কী করতে হয়?",
+    "expected_keywords": ["পাইমেট্রোজিন", "প্যাক্সম", "হপার বার্ন", "পানি"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "pest_management",
+    "difficulty": "medium",
+    "notes": "Brown planthopper management and chemical spray."
+  },
+  {
+    "id": "AGRI-Q08",
+    "query": "ধানের পাতা মোড়ানো পোকা দমনে অনুমোদিত কীটনাশক কী?",
+    "expected_keywords": ["ক্লোরপাইরিফস", "ডারসবান"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "pest_management",
+    "difficulty": "easy",
+    "notes": "Rice leaf folder chemical management."
+  },
+  {
+    "id": "AGRI-Q09",
+    "query": "ধানের ব্যাকটেরিয়াজনিত পাতা পোড়া রোগ বা বিএলবি হলে সারের কী ব্যবস্থা নিতে হয়?",
+    "expected_keywords": ["ইউরিয়া", "পটাশ", "থিওভিট"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "disease_control",
+    "difficulty": "medium",
+    "notes": "Bacterial leaf blight fertilizer adjustment."
+  },
+  {
+    "id": "AGRI-Q10",
+    "query": "টমেটোর পাতা কোঁকড়ানো ভাইরাস রোগ কোন পোকার মাধ্যমে ছড়ায়?",
+    "expected_keywords": ["সাদা মাছি", "ইমিডাক্লোপ্রিড"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "disease_vector",
+    "difficulty": "easy",
+    "notes": "Tomato leaf curl virus vector management."
+  },
+  {
+    "id": "AGRI-Q11",
+    "query": "ভুট্টার ফল আর্মিওয়ার্ম পোকা দমনে কোন কীটনাশক স্প্রে করতে হয়?",
+    "expected_keywords": ["কোরাজন", "ক্লোরেন্ট্রানিলিপ্রোল"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "pest_management",
+    "difficulty": "easy",
+    "notes": "Fall armyworm in maize control."
+  },
+  {
+    "id": "AGRI-Q12",
+    "query": "গমের ব্লাস্ট রোগ প্রতিরোধে কোন জাতের গম চাষের সুপারিশ করা হয়?",
+    "expected_keywords": ["বারি গম-৩৩", "নেটিভো"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "varietal_selection",
+    "difficulty": "easy",
+    "notes": "Wheat blast resistant variety and chemical management."
+  },
+  {
+    "id": "AGRI-Q13",
+    "query": "উপকূলীয় লবণাক্ত অঞ্চলের জন্য উপযোগী কয়েকটি ব্রি ধানের জাতের নাম বলুন।",
+    "expected_keywords": ["ব্রি ধান৪৭", "ব্রি ধান৬৭", "ব্রি ধান৭৩", "ব্রি ধান৯৭"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "varietal_selection",
+    "difficulty": "medium",
+    "notes": "Salinity tolerant rice varieties developed by BRRI."
+  },
+  {
+    "id": "AGRI-Q14",
+    "query": "বন্যা বা জলমগ্নতা সহনশীল কয়েকটি ধানের জাতের নাম কী?",
+    "expected_keywords": ["ব্রি ধান৫১", "ব্রি ধান৫২", "ব্রি ধান৭৯"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "varietal_selection",
+    "difficulty": "medium",
+    "notes": "Submergence-tolerant flash-flood rice varieties."
+  },
+  {
+    "id": "AGRI-Q15",
+    "query": "আলুর নাবি ধসা রোগ আক্রমণের জন্য অনুকূল আবহাওয়া কেমন?",
+    "expected_keywords": ["কুয়াশাচ্ছন্ন", "বৃষ্টি", "১০-১৫", "২০-২২"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "weather_conditions",
+    "difficulty": "medium",
+    "notes": "Weather conditions that foster Late Blight outbreaks."
+  },
+  {
+    "id": "AGRI-Q16",
+    "query": "ধান ক্ষেতে পার্চিং করার সঠিক নিয়ম কী?",
+    "expected_keywords": ["১০-১২টি", "ডাল", "পাখি"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "ipm_technique",
+    "difficulty": "easy",
+    "notes": "Biological pest control using bird perching in paddy fields."
+  },
+  {
+    "id": "AGRI-Q17",
+    "query": "কীটনাশক শরীরে লাগলে প্রাথমিক চিকিৎসা কী?",
+    "expected_keywords": ["পানি", "সাবান", "হাসপাতাল"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "safety_first_aid",
+    "difficulty": "easy",
+    "notes": "Pesticide accidental exposure first aid."
+  },
+  {
+    "id": "AGRI-Q18",
+    "query": "ধানের জমিতে ইউরিয়া সার মোট কত কিস্তিতে প্রয়োগ করতে হয়?",
+    "expected_keywords": ["তিন কিস্তিতে", "১৫-২০", "কাইচ থোড়"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "fertilizer_dosage",
+    "difficulty": "medium",
+    "notes": "Three split application stages for urea in paddy cultivation."
+  },
+  {
+    "id": "AGRI-Q19",
+    "query": "জিংক সমৃদ্ধ কয়েকটি ব্রি ধানের জাতের নাম কী?",
+    "expected_keywords": ["ব্রি ধান১০২", "জিংক"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "varietal_selection",
+    "difficulty": "medium",
+    "notes": "Biofortified zinc rice varieties from BRRI."
+  },
+  {
+    "id": "AGRI-Q20",
+    "query": "টমেটোর নাবি ধসা রোগ দেখা দিলে কী ওষুধ স্প্রে করতে হবে?",
+    "expected_keywords": ["রিডোমিল গোল্ড", "ডায়থেন"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "disease_control",
+    "difficulty": "easy",
+    "notes": "Tomato late blight management."
+  },
+  {
+    "id": "AGRI-Q21",
+    "query": "কীটনাশক স্প্রে করার দিনের সবচেয়ে উপযুক্ত সময় কখন?",
+    "expected_keywords": ["সকালে", "শিশির", "বিকেলে"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "pesticide_safety",
+    "difficulty": "easy",
+    "notes": "Ideal spraying timing during day."
+  },
+  {
+    "id": "AGRI-Q22",
+    "query": "বেগুনের ডগা ও ফল ছিদ্রকারী পোকা দমনে কোন বায়োপেস্টিসাইড স্প্রে করা যায়?",
+    "expected_keywords": ["স্পিনোস্যাড", "ট্রেসার", "প্রোক্লেইম"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "pest_management",
+    "difficulty": "medium",
+    "notes": "Biological pesticides for eggplant borer."
+  },
+  {
+    "id": "AGRI-Q23",
+    "query": "বিঘা প্রতি জমিতে ধান চাষে কত কেজি টিএসপি বা ডিএপি সার দিতে হয়?",
+    "expected_keywords": ["১৫-১৮", "টিএসপি", "ডিএপি"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "fertilizer_dosage",
+    "difficulty": "easy",
+    "notes": "Phosphatic fertilizer dosage for paddy per bigha."
+  },
+  {
+    "id": "AGRI-Q24",
+    "query": "আউশ মৌসুমের জন্য উপযুক্ত কয়েকটি খরা সহনশীল ব্রি ধানের জাত কী কী?",
+    "expected_keywords": ["ব্রি ধান৪৮", "ব্রি ধান৮২", "ব্রি ধান৮৫", "ব্রি ধান৯৮"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "varietal_selection",
+    "difficulty": "medium",
+    "notes": "Aus season drought-tolerant BRRI rice varieties."
+  },
+  {
+    "id": "AGRI-Q25",
+    "query": "আলুর কোন জাতটি নাবি ধসা রোগ সহনশীল?",
+    "expected_keywords": ["বারি আলু-৩৩", "সহনশীল"],
+    "expected_source_hint": "bangla_krishi_pest_and_crop_handbook.md",
+    "category": "varietal_selection",
+    "difficulty": "easy",
+    "notes": "Late blight tolerant potato variety from BARI."
+  }
+]

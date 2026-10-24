@@ -75,6 +75,7 @@ Location: ``src/tinyrag/storage/metadata.py``
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
 from collections.abc import Iterator, Sequence
@@ -95,6 +96,22 @@ SCHEMA_VERSION: int = 1
 #: Closed set of ``documents.doc_type`` values (mirrors the ``CHECK`` constraint).
 #: Centralised so the API and the DB can never disagree.
 SUPPORTED_DOC_TYPES: frozenset[str] = frozenset({"manual", "faq", "sensor_summary"})
+
+_BN_STOPWORDS: frozenset[str] = frozenset({
+    "কী", "কি", "বা", "এবং", "ও", "করে", "করতে", "হলে", "হয়", "হবে",
+    "এর", "দেখা", "দিলে", "জন্য", "থেকে", "পর", "কোন", "কোনো", "কিভাবে",
+    "কেন", "একটি", "এই", "যে", "তা", "না", "করা", "থাকে", "পারে", "দিতে",
+})
+
+_RERANK_STOPWORDS: frozenset[str] = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "do", "for",
+    "from", "has", "have", "how", "i", "in", "is", "it", "its", "me",
+    "my", "of", "on", "or", "so", "such", "than", "that", "the",
+    "their", "then", "there", "this", "to", "was", "we", "what",
+    "when", "where", "which", "who", "why", "with", "you", "your",
+    "does", "did", "can", "could", "would", "should", "will",
+    "shall", "may", "might", "must",
+})
 
 #: How many characters of each chunk's text to keep in ``chunks.text_preview``
 #: for the UI citation card (per the DDL).
@@ -282,6 +299,14 @@ class MetadataStore:
         with self._connect() as conn:
             for stmt in self._schema_sql():
                 conn.execute(stmt)
+            # Sync existing chunks into chunks_fts if it was newly created
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO chunks_fts (id, document_id, text) "
+                    "SELECT id, document_id, text FROM chunks"
+                )
+            except sqlite3.OperationalError:
+                pass
             # Record the current schema version. Use INSERT OR IGNORE
             # so re-running init_schema doesn't bump the version
             # every time (a migration bump is a deliberate action).
@@ -725,6 +750,46 @@ class MetadataStore:
             ).fetchall()
         return [_row_to_chunk(r) for r in rows]
 
+    def search_chunks_fts(
+        self,
+        query: str,
+        limit: int = 50,
+    ) -> list[tuple[str, float]]:
+        """Search chunks using SQLite FTS5 BM25.
+
+        Returns a list of ``(chunk_id, bm25_rank)`` tuples, ordered by
+        BM25 relevance (best match first).
+        """
+        if not query or not query.strip():
+            return []
+
+        raw_tokens = re.split(r"[\s\.,!?;:।॥\(\)\[\]\"'/\\]+", query)
+        tokens = [
+            t.strip()
+            for t in raw_tokens
+            if len(t.strip()) >= 2
+            and t.strip() not in _BN_STOPWORDS
+            and t.strip().lower() not in _RERANK_STOPWORDS
+        ]
+        if not tokens:
+            return []
+
+        safe_tokens = [f'"{t}"' for t in tokens if '"' not in t]
+        if not safe_tokens:
+            return []
+        match_expr = " OR ".join(safe_tokens)
+
+        with self._connect() as conn:
+            try:
+                rows = conn.execute(
+                    "SELECT id, bm25(chunks_fts) as rank FROM chunks_fts "
+                    "WHERE chunks_fts MATCH ? ORDER BY rank LIMIT ?",
+                    (match_expr, limit),
+                ).fetchall()
+                return [(str(r[0]), float(r[1])) for r in rows]
+            except sqlite3.OperationalError:
+                return []
+
     def delete_document(self, document_id: str) -> int:
         """Delete a document and cascade-delete its chunks.
 
@@ -1013,6 +1078,31 @@ class MetadataStore:
             """,
             "CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id)",
             "CREATE INDEX IF NOT EXISTS idx_chunks_faiss_idx   ON chunks(faiss_idx)",
+            # chunks_fts — full-text search virtual table for fast BM25 lexical ranking
+            f"""
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                id UNINDEXED,
+                document_id UNINDEXED,
+                text,
+                tokenize = "unicode61 tokenchars '{"".join(chr(c) for c in range(0x0981, 0x09FD))}'"
+            )
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
+                INSERT INTO chunks_fts(id, document_id, text) VALUES (new.id, new.document_id, new.text);
+            END;
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
+                DELETE FROM chunks_fts WHERE id = old.id;
+            END;
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
+                DELETE FROM chunks_fts WHERE id = old.id;
+                INSERT INTO chunks_fts(id, document_id, text) VALUES (new.id, new.document_id, new.text);
+            END;
+            """,
             # query_log — local log of every query for debugging + eval
             """
             CREATE TABLE IF NOT EXISTS query_log (

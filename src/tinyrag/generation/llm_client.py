@@ -554,10 +554,10 @@ class LlamaCppClient:
                         except json.JSONDecodeError:
                             logger.warning("Skipping malformed SSE line: %r", line[:200])
                             continue
-                        # Extract the delta content, if any.
+                        # Extract the delta content (or reasoning_content for thinking models).
                         for choice in chunk.get("choices", []):
                             delta = choice.get("delta") or {}
-                            content = delta.get("content")
+                            content = delta.get("content") or delta.get("reasoning_content")
                             if content:
                                 text_parts.append(content)
                         # Some chunks carry the usage block (usually the last one).
@@ -679,7 +679,7 @@ class LlamaCppClient:
                         # sees the token as soon as the server sent it.
                         for choice in chunk.get("choices", []):
                             delta = choice.get("delta") or {}
-                            content = delta.get("content")
+                            content = delta.get("content") or delta.get("reasoning_content")
                             if content:
                                 text_parts.append(content)
                                 yield content

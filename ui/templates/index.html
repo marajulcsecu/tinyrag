@@ -1,15 +1,19 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bn">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TinyRAG — Chat</title>
+    <title>AgriRAG — অফলাইন কৃষি এআই সহকারী</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <header class="topbar">
-        <h1 class="brand">TinyRAG</h1>
+        <h1 class="brand">AgriRAG <span class="subbrand">🌾 কৃষি সহকারী</span></h1>
         <div class="status">
+            <label class="tts-toggle" title="উত্তর স্বয়ংক্রিয়ভাবে অডিওতে পড়ে শোনাবে">
+                <input type="checkbox" id="tts-toggle" checked>
+                <span class="tts-label">🔊 অডিও উত্তর</span>
+            </label>
             <span id="status-pill" class="pill pill-loading" title="Subsystem health from /api/status">checking…</span>
             <span id="model-name" class="model-name" title="Active LLM"></span>
             <a class="navlink" href="/admin">Admin →</a>
@@ -73,24 +77,33 @@
                on first /api/status poll. #}
             <div class="message message-assistant">
                 <div class="bubble">
-                    <p>Hi! Ask a question about your documents or sensor data.
-                    Answers stream in token-by-token from the local LLM.</p>
+                    <p>🌾 <strong>স্বাগতম! আমি AgriRAG</strong> — আপনার অফলাইন কৃষি এআই সহকারী।</p>
+                    <p>বাংলাদেশ ধান গবেষণা ইনস্টিটিউট (BRRI) ও কৃষি গবেষণা ইনস্টিটিউট (BARI)-এর অফিশিয়াল তথ্যভাণ্ডার থেকে আপনার ফসল ও রোগবালাই সংক্রান্ত যেকোনো সমস্যা বাংলায় লিখে বা <strong>মাইক্রোফোন (🎙️) চেপে মুখে কথা বলে</strong> জিজ্ঞেস করতে পারেন।</p>
                 </div>
             </div>
         </div>
     </main>
 
+    <div class="quick-chips" id="quick-chips">
+        <button type="button" class="chip" data-query="ধানের ব্লাস্ট রোগ ও পাতা পোড়া দমনে কী ওষুধ স্প্রে করতে হয়?">🌾 ধানের ব্লাস্ট রোগ</button>
+        <button type="button" class="chip" data-query="আলুর নাবি ধসা রোগ দমনে কী ওষুধ স্প্রে করতে হয়?">🥔 আলুর নাবি ধসা</button>
+        <button type="button" class="chip" data-query="বেগুনের ডগা ও ফল ছিদ্রকারী পোকা দমনে সেক্স ফেরোমোন ফাঁদ কীভাবে ব্যবহার করব?">🍆 বেগুনের পোকা দমন</button>
+        <button type="button" class="chip" data-query="বিঘা প্রতি জমিতে ধানের বিভিন্ন সারের মাত্রা কত?">🌱 ধানের সার মাত্রা</button>
+        <button type="button" class="chip" data-query="কীটনাশক স্প্রে করার পর কতদিন পর্যন্ত সবজি তোলা যাবে না?">⚠️ কীটনাশক নিরাপত্তা</button>
+    </div>
+
     <form id="composer" class="composer" autocomplete="off">
         <label for="query" class="visually-hidden">Your question</label>
+        <button id="mic-btn" type="button" class="btn-mic" title="ভয়েস ইনপুট (বাংলায় কথা বলুন)" aria-label="Microphone Voice Input">🎙️</button>
         <textarea
             id="query"
             name="query"
             rows="2"
-            placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"
+            placeholder="ফসলের রোগ বা সমস্যা সম্পর্কে বলুন বা লিখুন… (যেমন: ধানের পাতা পোড়া রোগে কী স্প্রে করব?)"
             required
             minlength="1"
         ></textarea>
-        <button id="send" type="submit" class="send-button">Send</button>
+        <button id="send" type="submit" class="send-button">পাঠান</button>
     </form>
 
     <footer class="footer">

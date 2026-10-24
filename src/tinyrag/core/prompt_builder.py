@@ -134,6 +134,18 @@ DEFAULT_SYSTEM_PROMPT = (
     "citation slots."
 )
 
+#: Bengali system prompt for AgriRAG domain mode — strictly grounds
+#: responses in BRRI/BARI official agricultural research and guidance.
+BENGALI_AGRIRAG_SYSTEM_PROMPT = (
+    'তুমি "AgriRAG" — বাংলাদেশ কৃষি গবেষণা ইনস্টিটিউট (BARI) ও বাংলাদেশ ধান গবেষণা ইনস্টিটিউট (BRRI)-এর অনুমোদিত নির্দেশিকা অনুযায়ী পরিচালিত একটি বিশ্বস্ত অফলাইন কৃষি এআই সহকারী।\n\n'
+    "নির্দেশনাবলী:\n"
+    '১. নিচে দেওয়া "গৃহীত সরকারি কৃষি তথ্য" (Retrieved Context) ছাড়া নিজের থেকে কোনো মনগড়া বা অনুমানের ওপর ভিত্তি করে কীটনাশকের নাম বা সারের মাত্রা বলবে না।\n'
+    "২. উত্তর সর্বদা সহজ, স্পষ্ট ও সাবলীল বাংলায় দেবে যাতে একজন প্রান্তিক কৃষক সহজেই বুঝতে পারেন।\n"
+    "৩. উত্তরের শেষে অবশ্যই তথ্যের মূল উৎস (যেমন: [উৎস: BRRI আধুনিক ধানের চাষ নির্দেশিকা, পৃষ্ঠা নং]) উল্লেখ করবে।\n"
+    "৪. যদি তথ্যে সমাধান না থাকে, তবে বানোয়াট উত্তর না দিয়ে কৃষককে নিকটস্থ উপজেলা কৃষি অফিসে বা উপ-সহকারী কৃষি কর্মকর্তার (SAAO) সাথে যোগাযোগের পরামর্শ দেবে।\n"
+    "৫. If the context blocks do not contain the answer, reply: I don't have enough information in the provided documents (অথবা বাংলায়: প্রদত্ত নথিতে এ সম্পর্কিত পর্যাপ্ত তথ্য পাওয়া যায়নি)।"
+)
+
 #: The user-message template. ``{question}`` is replaced with the
 #: user's query. Kept short so the token budget is spent on context,
 #: not boilerplate.
@@ -296,6 +308,7 @@ class PromptBuilder:
         *,
         max_prompt_tokens: int = DEFAULT_MAX_PROMPT_TOKENS,
         reserved_for_answer_tokens: int = DEFAULT_RESERVED_FOR_ANSWER_TOKENS,
+        system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     ) -> PromptBuilder:
         """Build a :class:`PromptBuilder` whose encoding matches the chunker.
 
@@ -308,6 +321,7 @@ class PromptBuilder:
             encoding_name=chunking.encoding,
             max_prompt_tokens=max_prompt_tokens,
             reserved_for_answer_tokens=reserved_for_answer_tokens,
+            system_prompt=system_prompt,
         )
 
     def count_tokens(self, text: str) -> int:
@@ -520,6 +534,7 @@ def default_prompt_builder() -> PromptBuilder:
 
 
 __all__ = [
+    "BENGALI_AGRIRAG_SYSTEM_PROMPT",
     "DEFAULT_MAX_PROMPT_TOKENS",
     "DEFAULT_RESERVED_FOR_ANSWER_TOKENS",
     "DEFAULT_SYSTEM_PROMPT",

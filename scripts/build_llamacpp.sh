@@ -125,9 +125,9 @@ log_info "Pinned tag: ${LLAMACPP_PINNED_TAG}"
 # (see AGENT.md §11.1).
 EXTERNAL_BUILD_DIR=""
 EXTERNAL_SRC_DIR=""
-if [[ "$PROJECT_ROOT" == *:* ]]; then
-    log_warn "Project path contains ':' — diverting build out of project tree"
-    log_warn "(GNU Make cannot parse Makefiles with colons in target names)"
+if [[ "$PROJECT_ROOT" == *:* || "$PROJECT_ROOT" == *" "* ]]; then
+    log_warn "Project path contains ':' or spaces — diverting build out of project tree"
+    log_warn "(GNU Make and CMake cannot parse target names with spaces/colons cleanly)"
     # ``${HOME}/.cache`` is the XDG cache home on Linux. We don't use
     # ``XDG_CACHE_HOME`` because the script is sometimes sourced
     # from non-login shells where the env var may be unset; falling

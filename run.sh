@@ -117,12 +117,16 @@ readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # without touching the real install. Defaults match setup.sh + the
 # Makefile so the out-of-the-box experience is "just works".
 readonly LLAMACPP_BIN="${LLAMACPP_BIN:-${REPO_ROOT}/llama.cpp/build/bin/llama-server}"
-readonly LLM_GGUF="${LLM_GGUF:-${REPO_ROOT}/models/llama-3.2-3b.gguf}"
+readonly LLM_GGUF="${LLM_GGUF:-${REPO_ROOT}/models/gemma-4-E2B-it.gguf}"
 readonly LLM_HOST="${LLM_HOST:-127.0.0.1}"
 readonly LLM_PORT="${LLM_PORT:-8080}"
 readonly API_HOST="${API_HOST:-127.0.0.1}"
 readonly API_PORT="${API_PORT:-8000}"
-: "${VENV:=${HOME}/venvs/tinyrag}"
+if [[ -d "${REPO_ROOT}/.venv" ]]; then
+    : "${VENV:=${REPO_ROOT}/.venv}"
+else
+    : "${VENV:=${HOME}/venvs/tinyrag}"
+fi
 readonly VENV="${VENV}"
 # Seconds to wait for each service to pass its health check.
 #
@@ -155,7 +159,7 @@ readonly UVICORN_LOG="${LOG_DIR}/uvicorn.log"
 # more threads than cores just adds context-switching. Override with
 # LLAMA_THREADS=N for benchmarking. nproc is coreutils (always present on
 # Debian/Ubuntu + Raspberry Pi OS); the `|| echo 4` is a defensive fallback.
-readonly LLAMA_CTX_SIZE=4096
+readonly LLAMA_CTX_SIZE=8192
 readonly LLAMA_THREADS="${LLAMA_THREADS:-$(nproc 2>/dev/null || echo 4)}"
 
 # Exit-code constants. Tests grep for these — see the EXIT CODES
@@ -315,6 +319,8 @@ start_llama() {
         --model "${LLM_GGUF}" \
         --host "${LLM_HOST}" --port "${LLM_PORT}" \
         --ctx-size "${LLAMA_CTX_SIZE}" --threads "${LLAMA_THREADS}" \
+        --parallel 1 \
+        --reasoning off \
         >"${LLAMA_LOG}" 2>&1 &
     LLAMA_PID=$!
     echo "${LLAMA_PID}" > "${LLAMA_PIDFILE}"

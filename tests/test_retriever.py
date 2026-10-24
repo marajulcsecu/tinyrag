@@ -197,10 +197,11 @@ def _build_retriever(
     sensor_hits: list[tuple[str, float]] | None = None,
     chunks_by_id: dict[str, ChunkRecord] | None = None,
     docs_by_id: dict[str, Any] | None = None,
+    meta: Any | None = None,
     sensor_keywords: frozenset[str] = DEFAULT_SENSOR_KEYWORDS,
     doc_store_size: int | None = None,
     **kwargs,
-) -> tuple[Retriever, FakeVectorStore, FakeVectorStore, FakeMetadataAccessor]:
+) -> tuple[Retriever, FakeVectorStore, FakeVectorStore, Any]:
     """Wire a Retriever with fake stores. Returns (retriever, doc, sensor, meta).
 
     Parameters
@@ -220,7 +221,7 @@ def _build_retriever(
         # Replace size() with a closure that returns the override.
         doc_store.size = lambda n=doc_store_size: n  # type: ignore[assignment]
     sensor_store = FakeVectorStore(sensor_hits or [])
-    meta = FakeMetadataAccessor(chunks_by_id or {}, docs_by_id or {})
+    meta = meta if meta is not None else FakeMetadataAccessor(chunks_by_id or {}, docs_by_id or {})
     r = Retriever(
         embedder=embedder,
         doc_store=doc_store,
@@ -1425,3 +1426,32 @@ class TestIntegrationWithPromptBuilder:
         prompt = PromptBuilder().build("Q?", result.chunks)
         assert prompt.chunks_used == 0
         assert "I don't have enough information" in prompt.system_prompt
+
+
+class TestDualHybridFts:
+    """Retriever leverages sparse FTS search to promote keyword-exact candidates."""
+
+    def test_fts_match_promotes_chunk_outside_dense_top_k(self) -> None:
+        rec_dense = _make_chunk_record("c1", text="generic text without keywords")
+        rec_fts = _make_chunk_record(
+            "c2", text="আলুর মারাত্মক নাবি ধসা বা লেইট ব্লাইট রোগ ডাইথেন এম-৪৫ স্প্রে"
+        )
+
+        class FakeFtsMetadata(FakeMetadataAccessor):
+            def search_chunks_fts(self, query: str, limit: int = 50):
+                if "আলুর" in query:
+                    return [("c2", -15.0)]
+                return []
+
+        fake_meta = FakeFtsMetadata(
+            chunks_by_id={"c1": rec_dense, "c2": rec_fts},
+            docs_by_id={"doc-1": _make_doc("doc1.pdf")},
+        )
+        r, _, _, _ = _build_retriever(
+            doc_hits=[("c1", 0.85)],
+            meta=fake_meta,
+            doc_store_size=100,
+        )
+        result = r.retrieve("আলুর রোগ দমনে কী স্প্রে করতে হয়?")
+        assert len(result.chunks) >= 1
+        assert result.chunks[0].text == rec_fts.text

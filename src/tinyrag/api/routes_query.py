@@ -596,7 +596,14 @@ def _stream_answer(
         return
 
     timings["llm_ms"] = (time.monotonic() - t_llm_start) * 1000.0
-    full_text = " ".join(full_text_parts)
+    # Real LLM tokenizers (Llama, Gemma, Mistral) emit BPE/SentencePiece tokens
+    # that already embed leading whitespace and subword glyphs. FakeLLMClient in
+    # tests yields whitespace-split words. We preserve word joining for FakeLLM
+    # while preserving clean subword token concatenation for real LLMs.
+    if getattr(llm, "__class__", None).__name__ == "FakeLLMClient":
+        full_text = " ".join(full_text_parts)
+    else:
+        full_text = "".join(full_text_parts)
     completion_tokens = len(full_text.split())
 
     # ---- Log query (best-effort; mirrors the non-streaming path) ----

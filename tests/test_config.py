@@ -208,9 +208,12 @@ class TestLoadSettings:
         # Spot-check a field from each of the 9 sections.
         assert s.deployment.target is DeploymentTarget.LAPTOP
         assert s.server.port == 8000
-        assert s.llm.model_path == "models/llama-3.2-3b.gguf"
+        assert s.llm.model_path == "models/gemma-4-E2B-it.gguf"
         assert s.llm.temperature == 0.0
-        assert s.embedding.model_name == "sentence-transformers/all-MiniLM-L6-v2"
+        assert (
+            s.embedding.model_name
+            == "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+        )
         assert s.chunking.chunk_size == 400
         assert s.chunking.chunk_overlap == 50
         assert s.retrieval.doc_top_k == 5
@@ -242,7 +245,7 @@ class TestLoadSettings:
         s = load_settings(REAL_CONFIG_PATH)
         resolved = s.resolve(s.llm.model_path)
         assert resolved.is_absolute()
-        assert resolved == s.project_root() / "models" / "llama-3.2-3b.gguf"
+        assert resolved == s.project_root() / "models" / "gemma-4-E2B-it.gguf"
 
     def test_settings_resolve_absolute_passthrough(self) -> None:
         """Settings.resolve() leaves absolute paths alone."""
@@ -471,7 +474,10 @@ class TestConfigYamlMatchesSpec:
         assert s.llm.temperature == 0.0
         assert s.llm.max_tokens == 512
         assert s.llm.gpu_layers == 0
-        assert s.embedding.model_name == "sentence-transformers/all-MiniLM-L6-v2"
+        assert (
+            s.embedding.model_name
+            == "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+        )
         assert s.embedding.batch_size == 32
         assert s.chunking.chunk_size == 400
         assert s.chunking.chunk_overlap == 50
