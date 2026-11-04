@@ -106,11 +106,20 @@
     function updateEngineButtonLabel() {
         if (!engineBtnEl) return;
         const cfg = getEngineConfig();
+        const labelSpan = document.getElementById("engine-btn-label");
         if (cfg.engine_mode === "cloud" && cfg.api_key) {
-            engineBtnEl.textContent = `☁️ ক্লাউড (${cfg.api_model})`;
+            if (labelSpan) {
+                labelSpan.textContent = `ক্লাউড (${cfg.api_model})`;
+            } else {
+                engineBtnEl.textContent = `ক্লাউড (${cfg.api_model})`;
+            }
             engineBtnEl.classList.add("engine-cloud-active");
         } else {
-            engineBtnEl.textContent = "🖥️ লোকাল ইঞ্জিন";
+            if (labelSpan) {
+                labelSpan.textContent = "লোকাল ইঞ্জিন";
+            } else {
+                engineBtnEl.textContent = "লোকাল ইঞ্জিন";
+            }
             engineBtnEl.classList.remove("engine-cloud-active");
         }
     }
@@ -205,6 +214,21 @@
         // stream is in flight. Enter inside the textarea still works
         // because we don't preventDefault on keydown — only on submit.
         setComposerBusy(true);
+
+        // Auto-collapse starter suggestions drawer like Claude/Gemini
+        // so the conversation gets maximum viewport height.
+        const sugDrawer = document.getElementById("suggestions-drawer");
+        const sugToggle = document.getElementById("suggestions-toggle-btn");
+        if (sugDrawer) {
+            sugDrawer.classList.add("is-collapsed");
+        }
+        if (sugToggle) {
+            sugToggle.setAttribute("aria-expanded", "false");
+        }
+        const welcomeCard = document.getElementById("welcome-card");
+        if (welcomeCard) {
+            welcomeCard.classList.add("welcome-compact");
+        }
 
         // 1. Echo the user's message into the chat history.
         appendUserMessage(query);
@@ -510,6 +534,113 @@
     }
 
     /**
+     * Append inline text with **bold** segments converted to <strong> nodes
+     * using .textContent exclusively (100% XSS-safe).
+     */
+    function appendFormattedInline(parent, lineText) {
+        const parts = String(lineText || "").split(/(\*\*[^*]+\*\*)/g);
+        for (const part of parts) {
+            if (!part) continue;
+            if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+                const strong = document.createElement("strong");
+                strong.textContent = part.slice(2, -2);
+                parent.appendChild(strong);
+            } else {
+                parent.appendChild(document.createTextNode(part));
+            }
+        }
+    }
+
+    /**
+     * Render structured Markdown (headings, bullet lists, bold text, paragraphs)
+     * into safe DOM elements inside the assistant bubble.
+     */
+    function renderFormattedMarkdown(bubble, text) {
+        const lines = String(text || "").split(/\r?\n/);
+        let currentList = null;
+
+        for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line) {
+                currentList = null;
+                continue;
+            }
+            // Heading line: ### ...
+            const headingMatch = line.match(/^#{1,4}\s+(.*)$/);
+            if (headingMatch) {
+                currentList = null;
+                const h = document.createElement("h4");
+                h.className = "md-heading";
+                appendFormattedInline(h, headingMatch[1]);
+                bubble.appendChild(h);
+                continue;
+            }
+            // Bullet list item: * ... or - ... or • ...
+            const bulletMatch = line.match(/^[\*\-•]\s+(.*)$/);
+            if (bulletMatch) {
+                if (!currentList) {
+                    currentList = document.createElement("ul");
+                    currentList.className = "md-list";
+                    bubble.appendChild(currentList);
+                }
+                const li = document.createElement("li");
+                li.className = "md-list-item";
+                appendFormattedInline(li, bulletMatch[1]);
+                currentList.appendChild(li);
+                continue;
+            }
+            currentList = null;
+            const p = document.createElement("p");
+            p.className = "md-para";
+            appendFormattedInline(p, line);
+            bubble.appendChild(p);
+        }
+
+        if (bubble.children.length === 0) {
+            const p = document.createElement("p");
+            p.textContent = text;
+            bubble.appendChild(p);
+        }
+    }
+
+    function createSpeakerSvg() {
+        const svgNS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("width", "14");
+        svg.setAttribute("height", "14");
+        svg.setAttribute("fill", "none");
+        svg.setAttribute("stroke", "currentColor");
+        svg.setAttribute("stroke-width", "2");
+        svg.setAttribute("stroke-linecap", "round");
+        svg.setAttribute("stroke-linejoin", "round");
+        const poly = document.createElementNS(svgNS, "polygon");
+        poly.setAttribute("points", "11 5 6 9 2 9 2 15 6 15 11 19 11 5");
+        const path = document.createElementNS(svgNS, "path");
+        path.setAttribute("d", "M15.54 8.46a5 5 0 0 1 0 7.07");
+        svg.appendChild(poly);
+        svg.appendChild(path);
+        return svg;
+    }
+
+    function createStopSvg() {
+        const svgNS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("width", "13");
+        svg.setAttribute("height", "13");
+        svg.setAttribute("fill", "currentColor");
+        const rect = document.createElementNS(svgNS, "rect");
+        rect.setAttribute("x", "6");
+        rect.setAttribute("y", "6");
+        rect.setAttribute("width", "12");
+        rect.setAttribute("height", "12");
+        rect.setAttribute("rx", "2");
+        svg.appendChild(rect);
+        return svg;
+    }
+
+    /**
      * On the terminal `done` event, render the citation cards and
      * diagnostics footer beneath the answer text. The answer dict
      * is whatever Answer.to_dict() returned server-side.
@@ -524,21 +655,9 @@
             text = streamed;
         }
         bubble.textContent = "";
-        const paragraphs = text.split(/\n\s*\n/);
-        for (const para of paragraphs) {
-            if (para.trim()) {
-                const p = document.createElement("p");
-                p.textContent = para.trim();
-                bubble.appendChild(p);
-            }
-        }
-        if (bubble.children.length === 0) {
-            const p = document.createElement("p");
-            p.textContent = text;
-            bubble.appendChild(p);
-        }
+        renderFormattedMarkdown(bubble, text);
 
-        // Audio replay & stop buttons for voice-to-voice interaction
+        // Audio replay & stop buttons + collapsible citations bar
         if (text.trim()) {
             const audioBar = document.createElement("div");
             audioBar.className = "bubble-audio-bar";
@@ -546,7 +665,10 @@
             const replayBtn = document.createElement("button");
             replayBtn.type = "button";
             replayBtn.className = "btn-replay-audio";
-            replayBtn.innerHTML = "🔊 বাংলায় শুনুন";
+            replayBtn.appendChild(createSpeakerSvg());
+            const replayLbl = document.createElement("span");
+            replayLbl.textContent = "বাংলায় শুনুন";
+            replayBtn.appendChild(replayLbl);
             replayBtn.title = "কৃষি পরামর্শ মুখে শুনুন";
             replayBtn.addEventListener("click", () => speakText(text, true));
             audioBar.appendChild(replayBtn);
@@ -554,7 +676,10 @@
             const stopBtn = document.createElement("button");
             stopBtn.type = "button";
             stopBtn.className = "btn-stop-audio";
-            stopBtn.innerHTML = "⏹️ থামান";
+            stopBtn.appendChild(createStopSvg());
+            const stopLbl = document.createElement("span");
+            stopLbl.textContent = "থামান";
+            stopBtn.appendChild(stopLbl);
             stopBtn.title = "চলমান ভয়েস পড়া থামান";
             stopBtn.addEventListener("click", () => stopSpeechOutput());
             audioBar.appendChild(stopBtn);
@@ -565,28 +690,27 @@
             speakText(text, false);
         }
 
-        // Source cards — only render if we actually retrieved
-        // something. Empty arrays are common for a "I don't know"
-        // answer; rendering an empty Sources block would just be
-        // noise.
+        // Source cards inside a clean collapsible <details> accordion
         const citations = Array.isArray(answer.citations)
             ? answer.citations
             : [];
         if (citations.length > 0) {
-            const sourcesWrap = document.createElement("div");
+            const sourcesWrap = document.createElement("details");
             sourcesWrap.className = "sources";
-            const header = document.createElement("div");
+            const header = document.createElement("summary");
             header.className = "sources-header";
             header.textContent = `উৎস নথিপত্র (${citations.length})`;
             sourcesWrap.appendChild(header);
+            const listWrap = document.createElement("div");
+            listWrap.className = "sources-list";
             for (const cit of citations) {
-                sourcesWrap.appendChild(buildSourceCard(cit));
+                listWrap.appendChild(buildSourceCard(cit));
             }
+            sourcesWrap.appendChild(listWrap);
             bubble.appendChild(sourcesWrap);
         }
 
-        // Diagnostics footer — durations + token counts. We pull
-        // ms numbers out and format them as "X.X ms" or "X tok".
+        // Diagnostics footer — durations + token counts.
         bubble.appendChild(buildDiagnostics(answer));
 
         scrollToBottom();
@@ -905,7 +1029,7 @@
                     micBtnEl.title = "কথা বলা শেষ হলে আবার মাইক বাটনে চাপুন";
                 }
                 if (queryEl) {
-                    queryEl.placeholder = "🎤 শুনছি... বাংলায় আপনার পুরো সমস্যার কথা বলুন (শেষ হলে ২ সেকেন্ড থামলে অটো-সেন্ড হবে)...";
+                    queryEl.placeholder = "শুনছি... বাংলায় আপনার ফসলের সমস্যার কথা বলুন (থেমে গেলে স্বয়ংক্রিয়ভাবে সেন্ড হবে)...";
                 }
             };
 
@@ -1089,16 +1213,40 @@
             stopTtsBtnEl.addEventListener("click", stopSpeechOutput);
         }
 
-        // Collapse the 10-cell status grid by default on mobile phones so the
-        // chat messages and voice composer stay visible above the fold.
-        if (window.innerWidth <= 640) {
-            const spPanel = document.getElementById("status-panel");
-            const spToggle = document.getElementById("status-toggle");
+        // Collapse the 10-cell status grid by default on ALL screens (PC & mobile)
+        // so technical metrics never clutter the farmer's main chat view.
+        // Clicking the topbar status pill ("READY") toggles the diagnostics panel.
+        const spPanel = document.getElementById("status-panel");
+        const spToggle = document.getElementById("status-toggle");
+        const ensureStatusCollapsedOnStart = () => {
             if (spPanel && spToggle) {
                 spPanel.classList.add("is-collapsed");
                 spToggle.setAttribute("aria-expanded", "false");
                 spToggle.textContent = "Show";
+                try {
+                    window.localStorage.setItem("tinyrag.statusPanelCollapsed", "1");
+                } catch (_err) {
+                    // ignore storage errors
+                }
             }
+        };
+        ensureStatusCollapsedOnStart();
+        setTimeout(ensureStatusCollapsedOnStart, 0);
+        if (statusPillEl && spToggle) {
+            statusPillEl.style.cursor = "pointer";
+            statusPillEl.addEventListener("click", () => {
+                spToggle.click();
+            });
+        }
+
+        // Wire up the collapsible starter suggestions drawer toggle
+        const sugDrawer = document.getElementById("suggestions-drawer");
+        const sugToggle = document.getElementById("suggestions-toggle-btn");
+        if (sugDrawer && sugToggle) {
+            sugToggle.addEventListener("click", () => {
+                const collapsed = sugDrawer.classList.toggle("is-collapsed");
+                sugToggle.setAttribute("aria-expanded", String(!collapsed));
+            });
         }
 
         // Hybrid Engine Modal wire-up

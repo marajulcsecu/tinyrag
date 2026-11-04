@@ -682,8 +682,9 @@ class TestAgriRAGPhase5UI:
         assert 'id="engine-btn"' in body
         assert 'id="engine-modal"' in body
         assert 'id="chip-categories"' in body
-        assert "⏹️ থামান" in body
-        assert "⚡ অটো-সেন্ড" in body
+        assert "থামান" in body
+        assert "অটো-সেন্ড" in body
+        assert "<svg" in body
 
     def test_chat_js_has_phase5_voice_and_hybrid_engine_logic(self) -> None:
         js = CHAT_JS_PATH.read_text(encoding="utf-8")
