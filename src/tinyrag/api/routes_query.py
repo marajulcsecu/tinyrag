@@ -55,13 +55,17 @@ Location: ``src/tinyrag/api/routes_query.py``
 from __future__ import annotations
 
 import base64
+import hashlib
+import io
 import json
+import re
 import time
+from collections import OrderedDict
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, Query, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sse_starlette.sse import EventSourceResponse
 
 from tinyrag.api.deps import (
@@ -528,7 +532,112 @@ def build_query_router() -> APIRouter:
             },
         )
 
+    @router.get("/tts", summary="Synthesize Bangladeshi Bengali (bn-BD) speech audio")
+    async def get_tts(
+        text: str = Query(..., min_length=1, max_length=3000),
+        voice: str = Query(default="bn-BD-NabanitaNeural"),
+    ) -> Response:
+        """Synthesize natural Bangladeshi Bengali MP3 audio for PC & Mobile playback."""
+        return await _synthesize_bengali_tts(text=text, voice=voice)
+
+    @router.post("/tts", summary="Synthesize Bangladeshi Bengali (bn-BD) speech audio (POST)")
+    async def post_tts(request: Request) -> Response:
+        """Synthesize natural Bangladeshi Bengali MP3 audio from JSON payload."""
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        text = str(payload.get("text") or "").strip()
+        voice = str(payload.get("voice") or "bn-BD-NabanitaNeural").strip()
+        if not text:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": "empty_tts_text", "detail": "Text is required for TTS"},
+            )
+        return await _synthesize_bengali_tts(text=text, voice=voice)
+
     return router
+
+
+# ----------------------------------------------------------------------------
+# Bengali Neural TTS Helper + LRU Cache
+# ----------------------------------------------------------------------------
+
+_TTS_CACHE: OrderedDict[str, bytes] = OrderedDict()
+_TTS_CACHE_MAX = 64
+
+
+def _clean_text_for_bengali_tts(raw_text: str) -> str:
+    """Clean markdown, citation numbers, and thinking blocks for natural spoken Bengali."""
+    text = raw_text or ""
+    # Strip any <think>...</think> or English Thinking Process blocks if ever present
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+    if "Thinking Process:" in text:
+        # Remove English thinking bullets if present
+        parts = re.split(r"(?=[\u0980-\u09FF]{3,})", text, maxsplit=1)
+        text = parts[-1] if parts else text
+    text = re.sub(r"\[\d+\]", "", text)
+    text = re.sub(r"[*_`#~>-]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:1600]
+
+
+async def _synthesize_bengali_tts(text: str, voice: str = "bn-BD-NabanitaNeural") -> Response:
+    """Synthesize MP3 audio using edge-tts (bn-BD) with gTTS fallback and LRU caching."""
+    clean_text = _clean_text_for_bengali_tts(text)
+    if not clean_text:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": "empty_tts_text", "detail": "No speakable text after cleaning"},
+        )
+
+    cache_key = hashlib.sha256(f"{voice}:{clean_text}".encode("utf-8")).hexdigest()
+    if cache_key in _TTS_CACHE:
+        _TTS_CACHE.move_to_end(cache_key)
+        return Response(
+            content=_TTS_CACHE[cache_key],
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    audio_bytes = bytearray()
+    # 1. Primary: Microsoft Edge Neural Bangladeshi Bengali TTS (bn-BD-NabanitaNeural)
+    try:
+        import edge_tts
+
+        comm = edge_tts.Communicate(clean_text, voice)
+        async for chunk in comm.stream():
+            if chunk.get("type") == "audio" and chunk.get("data"):
+                audio_bytes.extend(chunk["data"])
+    except Exception as exc:
+        logger.warning("edge-tts failed (%s), falling back to gTTS", exc)
+
+    # 2. Fallback: Google Translate Bengali TTS (gTTS)
+    if not audio_bytes:
+        try:
+            from gtts import gTTS
+
+            buf = io.BytesIO()
+            tts_obj = gTTS(text=clean_text, lang="bn", slow=False)
+            tts_obj.write_to_fp(buf)
+            audio_bytes.extend(buf.getvalue())
+        except Exception as exc:
+            logger.warning("gTTS fallback also failed: %s", exc)
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"error": "tts_unavailable", "detail": str(exc)},
+            )
+
+    final_bytes = bytes(audio_bytes)
+    _TTS_CACHE[cache_key] = final_bytes
+    if len(_TTS_CACHE) > _TTS_CACHE_MAX:
+        _TTS_CACHE.popitem(last=False)
+
+    return Response(
+        content=final_bytes,
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 # ----------------------------------------------------------------------------

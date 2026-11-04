@@ -587,6 +587,31 @@ class Retriever:
         # skipped — they won't appear in chunk_records.
         records_by_id = {rec.id: rec for rec in chunk_records}
 
+        # Guard against FTS5 returning sensor_summary chunks when no sensor
+        # keywords matched the query (since chunks_fts indexes all chunks).
+        doc_cache: dict[str, object | None] = {}
+        for rec in list(chunk_records):
+            doc_obj = doc_cache.get(rec.document_id)
+            if rec.document_id not in doc_cache:
+                try:
+                    doc_obj = self.metadata.get_document(rec.document_id)
+                except Exception:
+                    doc_obj = None
+                doc_cache[rec.document_id] = doc_obj
+            is_sensor_doc = (
+                getattr(doc_obj, "doc_type", None) == "sensor_summary"
+                or str(getattr(doc_obj, "filename", "")).endswith(".csv")
+            )
+            if is_sensor_doc:
+                if not keywords_matched:
+                    merged.pop(rec.id, None)
+                    records_by_id.pop(rec.id, None)
+                    from_sensor.discard(rec.id)
+                else:
+                    from_sensor.add(rec.id)
+
+        ids_in_score_order = [cid for cid in ids_in_score_order if cid in merged]
+
         # 6.5. Dual-Hybrid BM25 + Keyword-overlap rerank.
         sparse_rank_by_id: dict[str, int] = {}
         if sparse_hits:
@@ -635,6 +660,18 @@ class Retriever:
                     merged[cid] = min(merged[cid] * 0.20, 0.20)
                     continue
 
+                # Check if the chunk's Markdown section heading directly matches specific query terms
+                heading_lines = " ".join(
+                    ln for ln in rec_text.splitlines() if ln.strip().startswith("#")
+                )
+                heading_tokens = {
+                    w.strip().lower()
+                    for w in re.split(r"[\s\.,!?;:।॥\(\)\[\]\"'/\\—\-]+", heading_lines)
+                    if len(w.strip()) >= 2
+                }
+                heading_spec_matches = sum(1 for t in specific_terms if t in heading_tokens)
+                heading_boost = 0.25 * heading_spec_matches
+
                 # Anchor base score so MiniLM [UNK] variance (0.75-0.93) on Bengali
                 # doesn't outweigh true lexical/BM25 relevance.
                 base_score = 0.55 if cid in sparse_rank_by_id else min(merged[cid], 0.55)
@@ -643,18 +680,18 @@ class Retriever:
                     if cid in sparse_rank_by_id
                     else 0.0
                 )
-                kw_boost = (0.12 * matches) + (0.08 * spec_matches)
+                kw_boost = (0.12 * matches) + (0.08 * spec_matches) + heading_boost
                 if query_terms and matches == len(query_terms):
                     kw_boost += 0.20
                 # Prefer clean Unicode UTF-8 guides over legacy Bijoy/ANSI garbled OCR chunks
-                clean_unicode_bonus = (
-                    0.08
-                    if not any(
-                        garble in rec_text
-                        for garble in ("পযাের্য়", "নিভর্রযোগ্য", "পরবতীর্", "ÿ", "ঙ্ ")
+                is_garbled_ocr = any(
+                    garble in rec_text
+                    for garble in (
+                        "পযাের্য়", "নিভর্রযোগ্য", "পরবতীর্", "ÿ", "ঙ্ ",
+                        "বস্নাস্ট", "স঳চ", "঩ানন", "ব্যফস্থা঩না", "ফাাংরাষদ঱", "গষফলণা",
                     )
-                    else 0.0
                 )
+                clean_unicode_bonus = -0.35 if is_garbled_ocr else 0.12
                 merged[cid] = base_score + fts_boost + kw_boost + clean_unicode_bonus
 
             ids_in_score_order = sorted(

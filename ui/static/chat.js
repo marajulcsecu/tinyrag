@@ -610,30 +610,43 @@
             .trim();
     }
 
+    let activeAudioPlayer = null;
+    let activeAudioUrl = null;
+
     /**
-     * Stop any active window.speechSynthesis playback immediately.
+     * Stop any active neural MP3 audio or window.speechSynthesis playback immediately.
      */
     function stopSpeechOutput() {
+        if (activeAudioPlayer) {
+            try {
+                activeAudioPlayer.pause();
+                activeAudioPlayer.currentTime = 0;
+            } catch (_) {
+                /* ignore */
+            }
+            activeAudioPlayer = null;
+        }
+        if (activeAudioUrl) {
+            try {
+                URL.revokeObjectURL(activeAudioUrl);
+            } catch (_) {
+                /* ignore */
+            }
+            activeAudioUrl = null;
+        }
         if ("speechSynthesis" in window) {
             window.speechSynthesis.cancel();
         }
     }
 
     /**
-     * Speak Bengali text aloud using window.speechSynthesis.
+     * Fallback browser Web Speech synthesis when offline or /api/tts is unavailable.
      */
-    function speakText(rawText, forceManual) {
+    function speakWithBrowserSynthesis(clean) {
         if (!("speechSynthesis" in window)) {
             return;
         }
-        if (!forceManual && ttsToggleEl && !ttsToggleEl.checked) {
-            return;
-        }
         window.speechSynthesis.cancel();
-
-        const clean = cleanTextForSpeech(rawText);
-        if (!clean) return;
-
         const utterance = new SpeechSynthesisUtterance(clean);
         utterance.lang = "bn-BD";
         utterance.rate = 0.95;
@@ -650,8 +663,48 @@
         if (bnVoice) {
             utterance.voice = bnVoice;
         }
-
         window.speechSynthesis.speak(utterance);
+    }
+
+    /**
+     * Speak Bengali text aloud using backend Neural Bangladeshi Bengali TTS (/api/tts)
+     * so PC browsers (Linux/Windows/Mac) and Mobile browsers both play clear Bengali speech,
+     * falling back to window.speechSynthesis only if offline.
+     */
+    async function speakText(rawText, forceManual) {
+        if (!forceManual && ttsToggleEl && !ttsToggleEl.checked) {
+            return;
+        }
+        stopSpeechOutput();
+
+        const clean = cleanTextForSpeech(rawText);
+        if (!clean) return;
+
+        try {
+            const resp = await fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    text: clean,
+                    voice: "bn-BD-NabanitaNeural",
+                }),
+            });
+            if (!resp.ok) {
+                throw new Error(`TTS HTTP ${resp.status}`);
+            }
+            const blob = await resp.blob();
+            stopSpeechOutput();
+            activeAudioUrl = URL.createObjectURL(blob);
+            activeAudioPlayer = new Audio(activeAudioUrl);
+            activeAudioPlayer.onended = () => {
+                stopSpeechOutput();
+            };
+            await activeAudioPlayer.play();
+        } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn("[AgriRAG] Backend neural TTS fallback to WebSpeech:", err);
+            speakWithBrowserSynthesis(clean);
+        }
     }
 
     /**
@@ -846,7 +899,7 @@
             recognition.onstart = function () {
                 isRecognizing = true;
                 clearSilenceTimer();
-                finalTranscript = queryEl.value ? queryEl.value.trim() + " " : "";
+                finalTranscript = queryEl.value ? queryEl.value.trim() : "";
                 if (micBtnEl) {
                     micBtnEl.classList.add("recording");
                     micBtnEl.title = "কথা বলা শেষ হলে আবার মাইক বাটনে চাপুন";
@@ -857,17 +910,33 @@
             };
 
             recognition.onresult = function (event) {
-                let interim = "";
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    const text = event.results[i][0].transcript;
-                    if (event.results[i].isFinal) {
-                        finalTranscript += text + " ";
+                // Rebuild utterance from event.results[0..N-1] and deduplicate
+                // cumulative prefixes emitted by Android Chrome's SpeechRecognizer.
+                let sessionTranscript = "";
+                for (let i = 0; i < event.results.length; ++i) {
+                    const seg = (event.results[i][0].transcript || "").trim();
+                    if (!seg) continue;
+                    if (!sessionTranscript) {
+                        sessionTranscript = seg;
+                    } else if (seg.startsWith(sessionTranscript)) {
+                        // Android Chrome progressive cumulative hypothesis
+                        sessionTranscript = seg;
+                    } else if (sessionTranscript.endsWith(seg)) {
+                        // Exact duplicate segment
+                        continue;
                     } else {
-                        interim += text;
+                        sessionTranscript = `${sessionTranscript} ${seg}`;
                     }
                 }
+                // Collapse any accidental adjacent repeated 1-3 word phrases
+                sessionTranscript = sessionTranscript
+                    .replace(/\b(\S+)(?:\s+\1\b)+/g, "$1")
+                    .replace(/\s+/g, " ")
+                    .trim();
                 if (queryEl) {
-                    queryEl.value = (finalTranscript + interim).trim();
+                    queryEl.value = finalTranscript
+                        ? `${finalTranscript} ${sessionTranscript}`.trim()
+                        : sessionTranscript;
                 }
                 scheduleAutoSendOnSilence();
             };

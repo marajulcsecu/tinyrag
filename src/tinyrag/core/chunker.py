@@ -300,83 +300,149 @@ class Chunker:
 
         text = unicodedata.normalize("NFC", text)
 
-        # ---- Step 1: encode --------------------------------------------
-        # ``encode`` is the single hot path. ``allowed_special="all"``
-        # permits any special tokens tiktoken might encounter
-        # (rare for plain text / PDF / Markdown; important if a
-        # future contributor passes a transcript with embedded
-        # ``<|endoftext|>`` etc.).
-        token_ids: list[int] = self._encoding.encode(text, allowed_special="all")
-        n_tokens = len(token_ids)
-        if n_tokens == 0:
-            return []
-
-        # ---- Step 2: window --------------------------------------------
-        # We step through ``token_ids`` in fixed strides of
-        # ``stride = chunk_size - chunk_overlap``. Each step
-        # produces one chunk.
         stride: int = self._chunk_size - self._chunk_overlap
         if stride <= 0:
-            # Defensive: ChunkingSettings's ``_overlap_less_than_size``
-            # validator should prevent this, but if a future
-            # contributor removes that check we want a clean error
-            # rather than an infinite loop.
             raise ChunkingError(
                 f"chunk_size ({self._chunk_size}) must be strictly greater "
                 f"than chunk_overlap ({self._chunk_overlap})"
             )
 
+        # ---- Structured Markdown Section-Aware Chunking ----------------
+        # When a document has multiple Markdown sub-headings (## / ### / ####),
+        # never bleed the end of one section (e.g. Pest A's insecticide) into
+        # the heading of the next section (e.g. Disease B). Furthermore,
+        # cl100k_base is an English byte-level BPE tokenizer that inflates
+        # Bengali/Indic UTF-8 token counts by ~3.5x (~6.7 tokens/word vs
+        # ~1.3 tokens/word in English), so we scale the atomic section window
+        # for Indic scripts so a 150-word pest/disease entry stays intact.
+        if len(re.findall(r"(?m)^#{2,4}\s+", text)) >= 2:
+            return self._chunk_markdown_sections(text, source=source, page=page)
+
+        return self._chunk_token_window(
+            text,
+            full_text=text,
+            source=source,
+            page=page,
+            start_chunk_index=0,
+            start_char_offset=0,
+            effective_chunk_size=self._chunk_size,
+        )
+
+    def _chunk_markdown_sections(
+        self,
+        text: str,
+        *,
+        source: str,
+        page: int | None,
+    ) -> list[Chunk]:
+        """Split structured Markdown along heading boundaries without cross-section bleed."""
+        raw_parts = [p for p in re.split(r"(?m)(?=^#{1,4}\s+)", text) if p and p.strip()]
+        merged_sections: list[str] = []
+        pending_header = ""
+        for part in raw_parts:
+            stripped = part.strip()
+            lines = [ln.strip() for ln in stripped.splitlines() if ln.strip() and ln.strip() != "---"]
+            # If a block is only headings (no bullet/body lines), attach it to the next section
+            if lines and all(ln.startswith("#") for ln in lines):
+                pending_header = f"{pending_header}\n\n{stripped}".strip() if pending_header else stripped
+            else:
+                if pending_header:
+                    merged_sections.append(f"{pending_header}\n\n{stripped}")
+                    pending_header = ""
+                else:
+                    merged_sections.append(stripped)
+        if pending_header:
+            if merged_sections:
+                merged_sections[-1] = f"{merged_sections[-1]}\n\n{pending_header}"
+            else:
+                merged_sections.append(pending_header)
+
         chunks: list[Chunk] = []
-        chunk_index = 0
-        start = 0
-        # Track the most recent end-of-chunk to guarantee forward
-        # progress even when sentence-trim shrinks a chunk past
-        # ``start + stride`` (e.g. on very long sentences).
-        last_end = 0
         last_char_offset = 0
+        for sec in merged_sections:
+            is_bengali = bool(re.search(r"[\u0980-\u09FF]", sec))
+            # Scale cl100k_base byte-token budget for Bengali (~3.5x BPE byte inflation)
+            eff_size = int(self._chunk_size * 3.5) if is_bengali else self._chunk_size
+            sec_tokens = self._encoding.encode(sec, allowed_special="all")
+            if len(sec_tokens) <= eff_size:
+                # Find the offset of the first line of sec in the original text
+                first_line = sec.splitlines()[0].strip()
+                char_offset = self._char_offset_in(text, first_line, last_char_offset)
+                chunks.append(
+                    Chunk(
+                        text=sec,
+                        source=source,
+                        page=page,
+                        chunk_index=len(chunks),
+                        char_offset=char_offset,
+                        token_count=len(sec_tokens),
+                    )
+                )
+                last_char_offset = max(last_char_offset, char_offset + 1)
+            else:
+                sub_chunks = self._chunk_token_window(
+                    sec,
+                    full_text=text,
+                    source=source,
+                    page=page,
+                    start_chunk_index=len(chunks),
+                    start_char_offset=last_char_offset,
+                    effective_chunk_size=eff_size,
+                )
+                if sub_chunks:
+                    chunks.extend(sub_chunks)
+                    last_char_offset = max(last_char_offset, sub_chunks[-1].char_offset + 1)
+        return chunks
+
+    def _chunk_token_window(
+        self,
+        text: str,
+        *,
+        full_text: str,
+        source: str,
+        page: int | None,
+        start_chunk_index: int,
+        start_char_offset: int,
+        effective_chunk_size: int,
+    ) -> list[Chunk]:
+        """Window ``text`` into overlapping token chunks respecting sentence & UTF-8 boundaries."""
+        token_ids: list[int] = self._encoding.encode(text, allowed_special="all")
+        n_tokens = len(token_ids)
+        if n_tokens == 0:
+            return []
+
+        chunks: list[Chunk] = []
+        chunk_index = start_chunk_index
+        start = 0
+        last_end = 0
+        last_char_offset = start_char_offset
+        is_bengali = bool(re.search(r"[\u0980-\u09FF]", text))
+        trim_window = (
+            max(1, int(effective_chunk_size * 0.35))
+            if is_bengali
+            else max(1, int(effective_chunk_size * _SENTENCE_TRIM_FRACTION))
+        )
+
         while start < n_tokens:
-            # Proposed window: [start, end) in token space.
-            end = min(start + self._chunk_size, n_tokens)
+            end = min(start + effective_chunk_size, n_tokens)
             is_last = end >= n_tokens
 
             if is_last:
-                # The final chunk always extends to the end of the
-                # text — no point in trimming a tail that has no
-                # following chunk to align with.
                 trimmed_end = end
             else:
-                # Look back from ``end`` for a sentence terminator
-                # within the trim window. If found, set
-                # ``trimmed_end`` to just after it (in tokens).
                 trimmed_end = self._find_sentence_break(
-                    token_ids, start, end, self._trim_window
+                    token_ids, start, end, trim_window
                 )
 
-            # Guard against trim shrinking the window below the
-            # overlap (which would defeat the purpose of overlap).
-            # We accept some loss of overlap here in pathological
-            # cases (a single sentence longer than ``chunk_size``);
-            # the alternative is a tiny chunk with no content.
             if trimmed_end - start < max(1, self._chunk_overlap // 2):
                 trimmed_end = end
 
-            # ---- Step 3: decode & record --------------------------------
             chunk_token_ids = token_ids[start:trimmed_end]
             chunk_text = self._encoding.decode(chunk_token_ids).strip("\ufffd\r\n\t ")
             if not chunk_text.strip():
-                # Defensive: shouldn't happen because the input
-                # wasn't whitespace-only, but if a trim produced
-                # nothing useful, skip rather than emit a noise
-                # chunk.
                 break
 
-            # ``char_offset`` is the position of the first
-            # character of ``chunk_text`` in the *original*
-            # ``text``. We use ``full_decoded.find(chunk_text,
-            # last_known_offset)`` to handle the rare case where
-            # the same substring appears earlier in the document
-            # (e.g. repeated headers).
-            char_offset = self._char_offset_in(text, chunk_text, last_char_offset)
+            char_offset = self._char_offset_in(full_text, chunk_text[:40], last_char_offset)
 
             chunks.append(
                 Chunk(
@@ -385,34 +451,24 @@ class Chunker:
                     page=page,
                     chunk_index=chunk_index,
                     char_offset=char_offset,
-                    token_count=len(chunk_token_ids),
+                    token_count=len(self._encoding.encode(chunk_text, allowed_special="all")),
                 )
             )
             chunk_index += 1
             last_end = trimmed_end
             last_char_offset = max(last_char_offset, char_offset + 1)
 
-            # If we just emitted the final chunk, stop.
             if is_last:
                 break
 
-            # Advance ``start`` by ``stride``, but never backwards
-            # (a sentence-trim that shrank the chunk past
-            # ``start + stride`` must still make progress).
             new_start = max(last_end - self._chunk_overlap, start + 1)
-            # Align new_start to a valid UTF-8 boundary so a chunk never starts mid-character
             while new_start < n_tokens - 1:
                 probe = self._encoding.decode(token_ids[new_start : min(new_start + 4, n_tokens)])
                 if not probe.startswith("\ufffd"):
                     break
                 new_start += 1
-            # And never past the end of the document.
             new_start = min(new_start, n_tokens - 1)
             if new_start <= start:
-                # No forward progress — bail to avoid an infinite
-                # loop. This should be unreachable in practice
-                # (the ``trimmed_end - start < overlap // 2``
-                # guard above forces ``last_end > start``).
                 break
             start = new_start
 
@@ -445,6 +501,11 @@ class Chunker:
         """
         # The leftmost token we still consider as a potential break.
         left = max(start, end - trim_window)
+        while left < end - 1:
+            probe = self._encoding.decode(token_ids[left : min(left + 4, end)])
+            if not probe.startswith("\ufffd"):
+                break
+            left += 1
         if left >= end:
             return end
 
@@ -459,7 +520,9 @@ class Chunker:
             ws_matches = list(re.finditer(r"\s+", slice_text))
             if not ws_matches:
                 return end
-            char_pos_in_slice = ws_matches[-1].end()
+            char_pos_in_slice = ws_matches[-1].start()
+            if char_pos_in_slice <= 0:
+                return end
         else:
             # Pick the last match. The match's end is the position in
             # ``slice_text`` just after the terminator character; we
