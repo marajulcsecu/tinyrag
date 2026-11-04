@@ -1020,6 +1020,18 @@
             stopTtsBtnEl.addEventListener("click", stopSpeechOutput);
         }
 
+        // Collapse the 10-cell status grid by default on mobile phones so the
+        // chat messages and voice composer stay visible above the fold.
+        if (window.innerWidth <= 640) {
+            const spPanel = document.getElementById("status-panel");
+            const spToggle = document.getElementById("status-toggle");
+            if (spPanel && spToggle) {
+                spPanel.classList.add("is-collapsed");
+                spToggle.setAttribute("aria-expanded", "false");
+                spToggle.textContent = "Show";
+            }
+        }
+
         // Hybrid Engine Modal wire-up
         updateEngineButtonLabel();
         if (engineBtnEl) {
