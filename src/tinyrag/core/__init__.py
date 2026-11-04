@@ -56,6 +56,8 @@ from tinyrag.core.answer import (
 )
 from tinyrag.core.chunker import Chunk, Chunker, ChunkingError, default_chunker
 from tinyrag.core.prompt_builder import (
+    BENGALI_AGRIRAG_SYSTEM_PROMPT,
+    BENGALI_LAYER2_FALLBACK_PREFIX,
     DEFAULT_MAX_PROMPT_TOKENS,
     DEFAULT_RESERVED_FOR_ANSWER_TOKENS,
     DEFAULT_SYSTEM_PROMPT,
@@ -90,6 +92,8 @@ from tinyrag.core.sensor_summarizer import (
 
 __all__ = [
     "Answer",
+    "BENGALI_AGRIRAG_SYSTEM_PROMPT",
+    "BENGALI_LAYER2_FALLBACK_PREFIX",
     "Chunk",
     "Chunker",
     "ChunkingError",

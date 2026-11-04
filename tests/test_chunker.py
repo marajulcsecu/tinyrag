@@ -484,3 +484,29 @@ class TestIntegrationWithParsers:
             for c in page_chunks:
                 assert c.page == page_num
                 assert c.source == "manual.pdf"
+
+
+class TestBengaliChunkingAndNormalization:
+    """Verify Bengali Dari (।) sentence boundaries, UTF-8 alignment, char_offset, and NFC normalization."""
+
+    def test_bengali_dari_preserved_and_char_offset_accurate(
+        self, default_chunker_instance: Chunker
+    ) -> None:
+        bn_text = ("ধানের ব্লাস্ট রোগ একটি মারাত্মক ছত্রাকজনিত রোগ। " * 25).strip()
+        chunks = default_chunker_instance.chunk(bn_text, source="agri.md")
+        assert len(chunks) >= 3
+        for c in chunks:
+            assert c.text.endswith("।"), f"Chunk {c.chunk_index} lost Bengali Dari: {c.text[-20:]!r}"
+            assert "\ufffd" not in c.text
+            assert 0 <= c.char_offset < len(bn_text)
+            assert bn_text.find(c.text[:20], c.char_offset) == c.char_offset
+
+    def test_bengali_nfd_normalized_to_nfc(
+        self, default_chunker_instance: Chunker
+    ) -> None:
+        import unicodedata
+
+        nfd_input = unicodedata.normalize("NFD", "ড় ও ঢ় এবং কৃষি ক্ষেত।")
+        chunks = default_chunker_instance.chunk(nfd_input, source="nfd.md")
+        assert len(chunks) == 1
+        assert unicodedata.is_normalized("NFC", chunks[0].text)

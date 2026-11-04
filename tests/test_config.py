@@ -220,7 +220,7 @@ class TestLoadSettings:
         assert s.retrieval.similarity_threshold == 0.3
         assert s.sensors.source is SensorSource.SIMULATED
         assert s.logging.level is LogLevel.INFO
-        assert s.paths.documents_dir == "data/documents/"
+        assert s.paths.documents_dir == "data/agrirag/documents/"
 
     def test_load_sample_config(self, sample_config_path: Path) -> None:
         """A separately-written config also loads cleanly."""
@@ -490,11 +490,11 @@ class TestConfigYamlMatchesSpec:
     def test_real_config_has_paths_from_database_design(self) -> None:
         """Spot-check the paths from docs/04_database_design_v1.md §config."""
         s = load_settings(REAL_CONFIG_PATH)
-        assert s.retrieval.doc_index_path == "data/vector_store/doc.faiss"
-        assert s.retrieval.sensor_index_path == "data/vector_store/sensor.faiss"
-        assert s.paths.documents_dir == "data/documents/"
-        assert s.paths.metadata_db == "data/metadata.db"
-        assert s.paths.sensor_logs_dir == "data/sensor_logs/"
+        assert s.retrieval.doc_index_path == "data/agrirag/vector_store/doc.faiss"
+        assert s.retrieval.sensor_index_path == "data/agrirag/vector_store/sensor.faiss"
+        assert s.paths.documents_dir == "data/agrirag/documents/"
+        assert s.paths.metadata_db == "data/agrirag/metadata.db"
+        assert s.paths.sensor_logs_dir == "data/agrirag/sensor_logs/"
         assert s.paths.logs_dir == "logs/"
 
 

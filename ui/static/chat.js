@@ -60,6 +60,60 @@
     let modelNameEl = null;
     let micBtnEl = null;
     let ttsToggleEl = null;
+    let stopTtsBtnEl = null;
+    let autoSendToggleEl = null;
+    let engineBtnEl = null;
+    let engineModalEl = null;
+    let engineModalCloseEl = null;
+    let engineSaveBtnEl = null;
+    let modeLocalEl = null;
+    let modeCloudEl = null;
+    let cloudApiKeyEl = null;
+    let cloudBaseUrlEl = null;
+    let cloudModelEl = null;
+
+    const ENGINE_STORAGE_KEY = "agrirag_engine_cfg";
+
+    function getEngineConfig() {
+        try {
+            const raw = window.localStorage
+                ? window.localStorage.getItem(ENGINE_STORAGE_KEY)
+                : null;
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                return {
+                    engine_mode: parsed.engine_mode === "cloud" ? "cloud" : "local",
+                    api_key: String(parsed.api_key || "").trim(),
+                    api_base_url:
+                        String(parsed.api_base_url || "").trim() ||
+                        "https://generativelanguage.googleapis.com/v1beta/openai",
+                    api_model:
+                        String(parsed.api_model || "").trim() ||
+                        "gemini-2.5-flash",
+                };
+            }
+        } catch (_) {
+            /* ignore storage errors */
+        }
+        return {
+            engine_mode: "local",
+            api_key: "",
+            api_base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+            api_model: "gemini-2.5-flash",
+        };
+    }
+
+    function updateEngineButtonLabel() {
+        if (!engineBtnEl) return;
+        const cfg = getEngineConfig();
+        if (cfg.engine_mode === "cloud" && cfg.api_key) {
+            engineBtnEl.textContent = `☁️ ক্লাউড (${cfg.api_model})`;
+            engineBtnEl.classList.add("engine-cloud-active");
+        } else {
+            engineBtnEl.textContent = "🖥️ লোকাল ইঞ্জিন";
+            engineBtnEl.classList.remove("engine-cloud-active");
+        }
+    }
 
     // ----------------------------------------------------------------
     // Status polling
@@ -185,13 +239,21 @@
      * when the server closes the stream OR an error frame arrives.
      */
     async function consumeStream(query, assistantBubble) {
+        const engineCfg = getEngineConfig();
+        const reqBody = { query: query };
+        if (engineCfg.engine_mode === "cloud" && engineCfg.api_key) {
+            reqBody.engine_mode = "cloud";
+            reqBody.api_key = engineCfg.api_key;
+            reqBody.api_base_url = engineCfg.api_base_url;
+            reqBody.api_model = engineCfg.api_model;
+        }
         const resp = await fetch(CFG.queryUrl, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 Accept: "text/event-stream",
             },
-            body: JSON.stringify({ query: query }),
+            body: JSON.stringify(reqBody),
         });
 
         if (!resp.ok) {
@@ -476,21 +538,31 @@
             bubble.appendChild(p);
         }
 
-        // Audio replay button for voice-to-voice interaction
+        // Audio replay & stop buttons for voice-to-voice interaction
         if (text.trim()) {
             const audioBar = document.createElement("div");
             audioBar.className = "bubble-audio-bar";
+
             const replayBtn = document.createElement("button");
             replayBtn.type = "button";
             replayBtn.className = "btn-replay-audio";
             replayBtn.innerHTML = "🔊 বাংলায় শুনুন";
             replayBtn.title = "কৃষি পরামর্শ মুখে শুনুন";
-            replayBtn.addEventListener("click", () => speakText(text));
+            replayBtn.addEventListener("click", () => speakText(text, true));
             audioBar.appendChild(replayBtn);
+
+            const stopBtn = document.createElement("button");
+            stopBtn.type = "button";
+            stopBtn.className = "btn-stop-audio";
+            stopBtn.innerHTML = "⏹️ থামান";
+            stopBtn.title = "চলমান ভয়েস পড়া থামান";
+            stopBtn.addEventListener("click", () => stopSpeechOutput());
+            audioBar.appendChild(stopBtn);
+
             bubble.appendChild(audioBar);
 
             // Automatically speak if TTS toggle is active
-            speakText(text);
+            speakText(text, false);
         }
 
         // Source cards — only render if we actually retrieved
@@ -528,9 +600,10 @@
         return raw
             .replace(/```[\s\S]*?```/g, "")
             .replace(/`([^`]+)`/g, "$1")
-            .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+            .replace(/\[([^\]]+)\]\([^\x29]+\)/g, "$1")
             .replace(/[*_#~]/g, "")
-            .replace(/\[\s*\d+(?:\s*,\s*\d+)*\s*\]/g, "")
+            .replace(/---+|\u2500+/g, " ")
+            .replace(/\[\s*[\d০-৯]+(?:\s*,\s*[\d০-৯]+)*\s*\]/g, "")
             .replace(/\[উৎস:[^\]]+\]/g, "")
             .replace(/উৎস:\s*[^।\n]+/g, "")
             .replace(/\s+/g, " ")
@@ -538,13 +611,22 @@
     }
 
     /**
+     * Stop any active window.speechSynthesis playback immediately.
+     */
+    function stopSpeechOutput() {
+        if ("speechSynthesis" in window) {
+            window.speechSynthesis.cancel();
+        }
+    }
+
+    /**
      * Speak Bengali text aloud using window.speechSynthesis.
      */
-    function speakText(rawText) {
+    function speakText(rawText, forceManual) {
         if (!("speechSynthesis" in window)) {
             return;
         }
-        if (ttsToggleEl && !ttsToggleEl.checked) {
+        if (!forceManual && ttsToggleEl && !ttsToggleEl.checked) {
             return;
         }
         window.speechSynthesis.cancel();
@@ -710,6 +792,39 @@
     let recognition = null;
     let isRecognizing = false;
     let finalTranscript = "";
+    let silenceTimer = null;
+
+    function clearSilenceTimer() {
+        if (silenceTimer) {
+            clearTimeout(silenceTimer);
+            silenceTimer = null;
+        }
+    }
+
+    function scheduleAutoSendOnSilence() {
+        clearSilenceTimer();
+        if (!autoSendToggleEl || !autoSendToggleEl.checked) {
+            return;
+        }
+        silenceTimer = setTimeout(() => {
+            silenceTimer = null;
+            if (!queryEl || !composerEl || queryEl.disabled) {
+                return;
+            }
+            const spoken = queryEl.value.trim();
+            if (spoken.length >= 3) {
+                if (isRecognizing && recognition) {
+                    try {
+                        recognition.stop();
+                    } catch (_) {
+                        /* ignore */
+                    }
+                }
+                stopSpeechRecognition();
+                composerEl.requestSubmit();
+            }
+        }, 2200);
+    }
 
     function initSpeechRecognition() {
         const SpeechRecognition =
@@ -730,13 +845,14 @@
 
             recognition.onstart = function () {
                 isRecognizing = true;
+                clearSilenceTimer();
                 finalTranscript = queryEl.value ? queryEl.value.trim() + " " : "";
                 if (micBtnEl) {
                     micBtnEl.classList.add("recording");
                     micBtnEl.title = "কথা বলা শেষ হলে আবার মাইক বাটনে চাপুন";
                 }
                 if (queryEl) {
-                    queryEl.placeholder = "🎤 শুনছি... বাংলায় আপনার পুরো সমস্যার কথা বলুন (শেষ হলে মাইক বাটনে বা পাঠানে ক্লিক করুন)...";
+                    queryEl.placeholder = "🎤 শুনছি... বাংলায় আপনার পুরো সমস্যার কথা বলুন (শেষ হলে ২ সেকেন্ড থামলে অটো-সেন্ড হবে)...";
                 }
             };
 
@@ -753,18 +869,18 @@
                 if (queryEl) {
                     queryEl.value = (finalTranscript + interim).trim();
                 }
+                scheduleAutoSendOnSilence();
             };
 
             recognition.onerror = function (event) {
                 // eslint-disable-next-line no-console
                 console.warn("[AgriRAG] Speech recognition error:", event.error);
+                clearSilenceTimer();
                 stopSpeechRecognition();
             };
 
             recognition.onend = function () {
                 stopSpeechRecognition();
-                // Never auto-submit on pause! Allow the user to review what was transcribed
-                // and click "পাঠান" (Send) or press Enter whenever they are ready.
             };
 
             if (micBtnEl) {
@@ -779,12 +895,11 @@
     function toggleSpeechRecognition() {
         if (!recognition) return;
         if (isRecognizing) {
+            clearSilenceTimer();
             recognition.stop();
         } else {
             try {
-                if ("speechSynthesis" in window) {
-                    window.speechSynthesis.cancel();
-                }
+                stopSpeechOutput();
                 recognition.start();
             } catch (err) {
                 // eslint-disable-next-line no-console
@@ -805,6 +920,55 @@
     }
 
     // ----------------------------------------------------------------
+    // Hybrid Engine Modal & Category Tabs
+    // ----------------------------------------------------------------
+
+    function openEngineModal() {
+        if (!engineModalEl) return;
+        const cfg = getEngineConfig();
+        if (modeLocalEl && modeCloudEl) {
+            modeLocalEl.checked = cfg.engine_mode !== "cloud";
+            modeCloudEl.checked = cfg.engine_mode === "cloud";
+        }
+        if (cloudApiKeyEl) cloudApiKeyEl.value = cfg.api_key;
+        if (cloudBaseUrlEl) cloudBaseUrlEl.value = cfg.api_base_url;
+        if (cloudModelEl) cloudModelEl.value = cfg.api_model;
+        engineModalEl.classList.remove("modal-hidden");
+    }
+
+    function closeEngineModal() {
+        if (!engineModalEl) return;
+        engineModalEl.classList.add("modal-hidden");
+    }
+
+    function saveEngineSettings() {
+        const mode =
+            modeCloudEl && modeCloudEl.checked ? "cloud" : "local";
+        const cfg = {
+            engine_mode: mode,
+            api_key: cloudApiKeyEl ? cloudApiKeyEl.value.trim() : "",
+            api_base_url: cloudBaseUrlEl
+                ? cloudBaseUrlEl.value.trim()
+                : "https://generativelanguage.googleapis.com/v1beta/openai",
+            api_model: cloudModelEl
+                ? cloudModelEl.value.trim()
+                : "gemini-2.5-flash",
+        };
+        try {
+            if (window.localStorage) {
+                window.localStorage.setItem(
+                    ENGINE_STORAGE_KEY,
+                    JSON.stringify(cfg),
+                );
+            }
+        } catch (_) {
+            /* ignore */
+        }
+        updateEngineButtonLabel();
+        closeEngineModal();
+    }
+
+    // ----------------------------------------------------------------
     // Wire-up (runs once on DOMContentLoaded)
     // ----------------------------------------------------------------
 
@@ -817,6 +981,17 @@
         modelNameEl = document.getElementById("model-name");
         micBtnEl = document.getElementById("mic-btn");
         ttsToggleEl = document.getElementById("tts-toggle");
+        stopTtsBtnEl = document.getElementById("stop-tts-btn");
+        autoSendToggleEl = document.getElementById("autosend-toggle");
+        engineBtnEl = document.getElementById("engine-btn");
+        engineModalEl = document.getElementById("engine-modal");
+        engineModalCloseEl = document.getElementById("engine-modal-close");
+        engineSaveBtnEl = document.getElementById("engine-save-btn");
+        modeLocalEl = document.getElementById("mode-local");
+        modeCloudEl = document.getElementById("mode-cloud");
+        cloudApiKeyEl = document.getElementById("cloud-api-key");
+        cloudBaseUrlEl = document.getElementById("cloud-base-url");
+        cloudModelEl = document.getElementById("cloud-model");
 
         if (
             !messagesEl ||
@@ -841,11 +1016,57 @@
             }
         });
 
+        if (stopTtsBtnEl) {
+            stopTtsBtnEl.addEventListener("click", stopSpeechOutput);
+        }
+
+        // Hybrid Engine Modal wire-up
+        updateEngineButtonLabel();
+        if (engineBtnEl) {
+            engineBtnEl.addEventListener("click", openEngineModal);
+        }
+        if (engineModalCloseEl) {
+            engineModalCloseEl.addEventListener("click", closeEngineModal);
+        }
+        if (engineSaveBtnEl) {
+            engineSaveBtnEl.addEventListener("click", saveEngineSettings);
+        }
+        const presetBtns = document.querySelectorAll(".preset-btn");
+        presetBtns.forEach((btn) => {
+            btn.addEventListener("click", () => {
+                if (modeCloudEl) modeCloudEl.checked = true;
+                if (cloudBaseUrlEl && btn.dataset.url) {
+                    cloudBaseUrlEl.value = btn.dataset.url;
+                }
+                if (cloudModelEl && btn.dataset.model) {
+                    cloudModelEl.value = btn.dataset.model;
+                }
+            });
+        });
+
         // Initialize Web Speech STT
         initSpeechRecognition();
 
-        // Wire up quick suggestion chips (Exhibition demo mode)
+        // Wire up category tabs for quick suggestion chips
+        const catTabs = document.querySelectorAll(".chip-categories .cat-tab");
         const chips = document.querySelectorAll(".quick-chips .chip");
+        catTabs.forEach((tab) => {
+            tab.addEventListener("click", () => {
+                catTabs.forEach((t) => t.classList.remove("active"));
+                tab.classList.add("active");
+                const selectedCat = tab.getAttribute("data-cat") || "all";
+                chips.forEach((chip) => {
+                    const chipCat = chip.getAttribute("data-cat") || "all";
+                    if (selectedCat === "all" || chipCat === selectedCat) {
+                        chip.style.display = "inline-flex";
+                    } else {
+                        chip.style.display = "none";
+                    }
+                });
+            });
+        });
+
+        // Wire up quick suggestion chips (Exhibition demo mode)
         chips.forEach((chip) => {
             chip.addEventListener("click", () => {
                 const q = chip.getAttribute("data-query");

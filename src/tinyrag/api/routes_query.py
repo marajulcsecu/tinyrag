@@ -54,6 +54,7 @@ Location: ``src/tinyrag/api/routes_query.py``
 
 from __future__ import annotations
 
+import base64
 import json
 import time
 from collections.abc import Iterator
@@ -76,12 +77,16 @@ from tinyrag.api.schemas import (
     AskResponse,
     ErrorResponse,
     StatusResponse,
+    VoiceQueryRequest,
+    VoiceQueryResponse,
 )
 from tinyrag.api.system_info import (
     get_embedding_model_name,
     get_llama_cpp_status,
     get_ram_mb,
 )
+from tinyrag.generation.llm_client import LlamaCppClient
+from tinyrag.input_adapters.voice import VoiceInputAdapter, VoiceInputError
 from tinyrag.observability.logger import get_logger
 
 if TYPE_CHECKING:
@@ -294,6 +299,7 @@ def build_query_router() -> APIRouter:
         prompt_tokens = prompt.prompt_tokens
 
         # ---- Stage 3: llm — branches on stream flag ---------------
+        active_llm, owns_llm = _resolve_llm(llm, body)
         if stream:
             # Return an SSE stream. Stages 1 + 2 already produced
             # retrieval + prompt without touching the LLM, so any
@@ -305,7 +311,8 @@ def build_query_router() -> APIRouter:
                 _stream_answer(
                     body=body,
                     settings=settings,
-                    llm=llm,
+                    llm=active_llm,
+                    owns_llm=owns_llm,
                     metadata=metadata,
                     retrieval=retrieval,
                     prompt=prompt,
@@ -321,13 +328,15 @@ def build_query_router() -> APIRouter:
         completion_tokens = 0
         full_text = ""
         try:
-            full_text, stats = llm.generate(
+            full_text, stats = active_llm.generate(
                 prompt.messages,
                 max_tokens=body.max_tokens,
                 temperature=settings.llm.temperature,
             )
             completion_tokens = stats.completion_tokens
         except Exception as exc:
+            if owns_llm and hasattr(active_llm, "close"):
+                active_llm.close()
             _log.error(
                 "llm_failed",
                 query=body.query[:80],
@@ -341,6 +350,9 @@ def build_query_router() -> APIRouter:
                     detail=f"LLM call failed: {exc}",
                 ).model_dump(),
             )
+        finally:
+            if owns_llm and hasattr(active_llm, "close"):
+                active_llm.close()
         timings["llm_ms"] = (time.monotonic() - t) * 1000.0
 
         # ---- Stage 4: log ------------------------------------------
@@ -360,7 +372,7 @@ def build_query_router() -> APIRouter:
                     retrieval_ms=int(round(timings.get("retrieve_ms", 0.0))),
                     generation_ms=int(round(timings.get("llm_ms", 0.0))),
                     total_ms=int(round((time.monotonic() - t_total_start) * 1000.0)),
-                    model=_safe_model_name(llm),
+                    model=_safe_model_name(active_llm),
                     used_sensor_idx=1 if used_sensor else 0,
                 )
             except Exception as exc:
@@ -385,15 +397,15 @@ def build_query_router() -> APIRouter:
         # chunk that survived the threshold filter (the same set
         # the prompt builder rendered as ``[1]..[N]`` markers).
         # The CLI uses the same shortcut — see scripts/ask.py.
-        surviving_chunks = list(retrieval.chunks)
-        surviving_scores = list(retrieval.scores)
+        surviving_chunks = list(retrieval.chunks[: prompt.chunks_used])
+        surviving_scores = list(retrieval.scores[: prompt.chunks_used])
 
         answer = Answer(
             query=body.query,
             text=full_text,
             used_sensor_idx=used_sensor,
             top_score=top_score,
-            model_name=_safe_model_name(llm),
+            model_name=_safe_model_name(active_llm),
             citations=build_citations_from_chunks(
                 surviving_chunks, surviving_scores
             ),
@@ -422,6 +434,100 @@ def build_query_router() -> APIRouter:
             content=answer.to_dict(),
         )
 
+    # --------------------------------------------------------------------
+    # POST /api/voice — Bengali Voice Input Adapter (Phase 5)
+    # --------------------------------------------------------------------
+    @router.post(
+        "/voice",
+        response_model=VoiceQueryResponse,
+        summary="Transcribe Bengali voice input and optionally run the RAG pipeline.",
+        responses={
+            200: {"description": "Transcription result + optional Answer JSON."},
+            400: {"model": ErrorResponse, "description": "Invalid or empty voice input."},
+            502: {"model": ErrorResponse, "description": "LLM failed."},
+        },
+    )
+    async def post_voice(
+        body: VoiceQueryRequest,
+        request: Request,
+        settings: Settings = Depends(get_settings),
+        retriever: Retriever = Depends(get_retriever),
+        prompt_builder: PromptBuilder = Depends(get_prompt_builder),
+        llm: LLMClient = Depends(get_llm),
+        metadata: MetadataStore = Depends(get_metadata),
+    ):
+        """Transcribe Bengali voice input via :class:`VoiceInputAdapter` and optionally answer."""
+        audio_bytes: bytes | None = None
+        if body.audio_base64:
+            try:
+                audio_bytes = base64.b64decode(body.audio_base64, validate=False)
+            except Exception as exc:
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content=ErrorResponse(
+                        error="invalid_audio_base64",
+                        detail=f"Could not decode base64 audio payload: {exc}",
+                    ).model_dump(),
+                )
+
+        adapter = VoiceInputAdapter(default_language=body.language)
+        try:
+            transcription = adapter.transcribe(
+                audio_bytes,
+                transcript_hint=body.transcript_hint,
+                language=body.language,
+            )
+        except VoiceInputError as exc:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content=ErrorResponse(
+                    error="voice_input_invalid",
+                    detail=str(exc),
+                ).model_dump(),
+            )
+
+        if not body.run_rag or not transcription.ok or not transcription.transcript:
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "ok": transcription.ok,
+                    "transcription": transcription.to_dict(),
+                    "answer": None,
+                },
+            )
+
+        # Delegate to the same RAG pipeline used by POST /api/query
+        ask_body = AskRequest(
+            query=transcription.transcript,
+            engine_mode=body.engine_mode,
+            api_key=body.api_key,
+            api_base_url=body.api_base_url,
+            api_model=body.api_model,
+        )
+        rag_resp = await post_query(
+            body=ask_body,
+            request=request,
+            stream=False,
+            settings=settings,
+            embedder=request.app.state.embedder,
+            retriever=retriever,
+            prompt_builder=prompt_builder,
+            llm=llm,
+            metadata=metadata,
+        )
+        if rag_resp.status_code != status.HTTP_200_OK:
+            return rag_resp
+
+        answer_payload = json.loads(rag_resp.body.decode("utf-8"))
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "ok": True,
+                "transcription": transcription.to_dict(),
+                "answer": answer_payload,
+            },
+        )
+
     return router
 
 
@@ -441,6 +547,33 @@ def _safe_size(store: VectorStore) -> int | None:
         return int(store.size())
     except Exception:
         return None
+
+
+def _resolve_llm(default_llm: LLMClient, body: AskRequest) -> tuple[LLMClient, bool]:
+    """Return ``(active_llm, owns_llm)`` based on optional Cloud API override fields.
+
+    When ``body.engine_mode == 'cloud'`` and ``body.api_key`` is non-empty,
+    constructs a per-request :class:`LlamaCppClient` pointing to the chosen
+    OpenAI-compatible cloud endpoint (defaulting to Google Gemini's OpenAI
+    endpoint ``https://generativelanguage.googleapis.com/v1beta/openai`` and
+    model ``gemini-2.5-flash``). Otherwise returns ``(default_llm, False)``.
+    """
+    mode = (body.engine_mode or "").strip().lower()
+    api_key = (body.api_key or "").strip()
+    if mode == "cloud" and api_key:
+        base_url = (
+            body.api_base_url
+            or "https://generativelanguage.googleapis.com/v1beta/openai"
+        ).strip()
+        model = (body.api_model or "gemini-2.5-flash").strip()
+        cloud_client = LlamaCppClient(
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+            timeout_s=60.0,
+        )
+        return cloud_client, True
+    return default_llm, False
 
 
 def _safe_model_name(llm: LLMClient) -> str:
@@ -478,6 +611,7 @@ def _stream_answer(
     body: AskRequest,
     settings: Settings,
     llm: LLMClient,
+    owns_llm: bool = False,
     metadata: MetadataStore,
     retrieval: Any,
     prompt: Any,
@@ -579,6 +713,8 @@ def _stream_answer(
             full_text_parts.append(token)
             yield _frame("token", {"delta": token})
     except Exception as exc:
+        if owns_llm and hasattr(llm, "close"):
+            llm.close()
         # LLM failure mid-stream → a single error frame + close.
         # The dashboard reads ``event="error"`` and renders the
         # toast; nothing else useful can be sent (the stream is
@@ -594,6 +730,9 @@ def _stream_answer(
             {"error": "llm_failed", "detail": f"LLM call failed: {exc}"},
         )
         return
+    finally:
+        if owns_llm and hasattr(llm, "close"):
+            llm.close()
 
     timings["llm_ms"] = (time.monotonic() - t_llm_start) * 1000.0
     # Real LLM tokenizers (Llama, Gemma, Mistral) emit BPE/SentencePiece tokens
@@ -635,8 +774,8 @@ def _stream_answer(
     # ---- Build the final Answer + yield the done event --------------
     from tinyrag.core.answer import Answer, build_citations_from_chunks
 
-    surviving_chunks = list(retrieval.chunks)
-    surviving_scores = list(retrieval.scores)
+    surviving_chunks = list(retrieval.chunks[: prompt.chunks_used])
+    surviving_scores = list(retrieval.scores[: prompt.chunks_used])
 
     answer = Answer(
         query=body.query,

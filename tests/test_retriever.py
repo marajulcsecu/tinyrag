@@ -1455,3 +1455,16 @@ class TestDualHybridFts:
         result = r.retrieve("আলুর রোগ দমনে কী স্প্রে করতে হয়?")
         assert len(result.chunks) >= 1
         assert result.chunks[0].text == rec_fts.text
+
+    def test_bengali_sensor_keywords_matched_intact_with_matras(self) -> None:
+        from tinyrag.core.retriever import DEFAULT_SENSOR_KEYWORDS, _find_sensor_keywords
+
+        kws = _find_sensor_keywords(
+            "আজকের আবহাওয়া ও আর্দ্রতা অনুযায়ী জমির তাপমাত্রা এবং মাটির রস কত?",
+            DEFAULT_SENSOR_KEYWORDS,
+        )
+        assert "আজকের" in kws
+        assert "আর্দ্রতা" in kws
+        assert "তাপমাত্রা" in kws
+        assert "মাটির রস" in kws
+

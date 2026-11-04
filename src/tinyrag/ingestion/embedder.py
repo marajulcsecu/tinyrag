@@ -417,11 +417,27 @@ class SentenceTransformerEmbedder:
         # writes here on first download.
         self._cache_dir.mkdir(parents=True, exist_ok=True)
 
+        # Resolve local cached snapshot directory if present so 100% offline mode
+        # and HF rate-limits never block or crash model loading.
+        model_id_or_path = self._model_name
+        local_only = False
+        safe_repo_dir = (
+            self._cache_dir
+            / f"models--{self._model_name.replace('/', '--')}"
+            / "snapshots"
+        )
+        if safe_repo_dir.is_dir():
+            snapshots = sorted(p for p in safe_repo_dir.iterdir() if p.is_dir())
+            if snapshots:
+                model_id_or_path = str(snapshots[-1])
+                local_only = True
+
         try:
             st_model = SentenceTransformer(
-                self._model_name,
+                model_id_or_path,
                 device=self._device,
                 cache_folder=str(self._cache_dir),
+                local_files_only=local_only,
             )
         except Exception as exc:  # sentence-transformers raises many types
             raise EmbeddingModelNotFoundError(

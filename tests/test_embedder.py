@@ -68,10 +68,10 @@ from tinyrag.ingestion import (
 # Constants
 # ----------------------------------------------------------------------------
 
-# The all-MiniLM-L6-v2 model id — must match the default in
+# The paraphrase-multilingual-MiniLM-L12-v2 model id — must match the default in
 # config.yaml. If you swap the default model, update the constant and
 # the dimension (384) below.
-_DEFAULT_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
+_DEFAULT_MODEL_ID = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 _DEFAULT_DIM = 384
 
 # Where the model lives once downloaded. We don't trigger a download

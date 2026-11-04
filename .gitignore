@@ -84,6 +84,11 @@ data/vector_store/
 data/eval_logs/
 # SQLite metadata DB
 data/metadata.db
+# Isolated AgriRAG branch runtime data (keep curated markdown handbook tracked)
+data/agrirag/vector_store/
+data/agrirag/sensor_logs/
+data/agrirag/metadata.db
+data/agrirag/documents/*.pdf
 # structured JSON logs from structlog
 logs/
 # generated CSV / PDF reports (regenerable)

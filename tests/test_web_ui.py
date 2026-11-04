@@ -538,7 +538,8 @@ class TestIndexHTML:
         assert "width=device-width" in self._html_text()
 
     def test_html_has_lang_attribute(self) -> None:
-        assert 'lang="en"' in self._html_text()
+        html = self._html_text()
+        assert 'lang="bn"' in html or 'lang="en"' in html
 
     def test_html_has_form_autocomplete_off(self) -> None:
         # The composer must disable browser autofill on the textarea
@@ -648,3 +649,105 @@ class TestStaticMountWiring:
 
 
 _SSE_FRAME_SEP_RE = re.compile(r"\n\n")
+
+
+# ===========================================================================
+# Class 9 — AgriRAG Phase 5: Voice-to-Voice, Hybrid Engine & 3-Way Mobile PWA
+# ===========================================================================
+
+
+class TestAgriRAGPhase5UI:
+    """Phase 5 verification tests for Voice Adapter, Stop Audio, Auto-Send, Cloud Engine & PWA."""
+
+    def test_pwa_manifest_serves_valid_json(self, client: TestClient) -> None:
+        resp = client.get("/static/manifest.json")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["short_name"] == "AgriRAG"
+        assert data["display"] == "standalone"
+        assert data["start_url"] == "/"
+        assert len(data["icons"]) >= 1
+
+    def test_pwa_icon_svg_served(self, client: TestClient) -> None:
+        resp = client.get("/static/icon.svg")
+        assert resp.status_code == 200
+        assert "<svg" in resp.text
+
+    def test_index_html_has_phase5_farmer_controls(self, client: TestClient) -> None:
+        body = client.get("/").text
+        assert 'rel="manifest"' in body
+        assert 'href="/static/manifest.json"' in body
+        assert 'id="stop-tts-btn"' in body
+        assert 'id="autosend-toggle"' in body
+        assert 'id="engine-btn"' in body
+        assert 'id="engine-modal"' in body
+        assert 'id="chip-categories"' in body
+        assert "⏹️ থামান" in body
+        assert "⚡ অটো-সেন্ড" in body
+
+    def test_chat_js_has_phase5_voice_and_hybrid_engine_logic(self) -> None:
+        js = CHAT_JS_PATH.read_text(encoding="utf-8")
+        assert "stopSpeechOutput" in js
+        assert "scheduleAutoSendOnSilence" in js
+        assert "getEngineConfig" in js
+        assert "engine_mode" in js
+        assert "btn-stop-audio" in js
+
+    def test_post_voice_endpoint_with_transcript_hint(self, client: TestClient) -> None:
+        resp = client.post(
+            "/api/voice",
+            json={
+                "transcript_hint": "ধানের ব্লাস্ট রোগে কী করণীয়?",
+                "language": "bn-BD",
+                "run_rag": True,
+            },
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["ok"] is True
+        assert payload["transcription"]["ok"] is True
+        assert payload["transcription"]["engine"] == "web_speech_hint"
+        assert "ধানের ব্লাস্ট" in payload["transcription"]["transcript"]
+        assert payload["answer"] is not None
+        assert "text" in payload["answer"]
+
+    def test_post_voice_endpoint_with_raw_wav_bytes_fallback(self, client: TestClient) -> None:
+        import base64
+
+        fake_wav = b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"
+        b64 = base64.b64encode(fake_wav).decode("ascii")
+        resp = client.post(
+            "/api/voice",
+            json={
+                "audio_base64": b64,
+                "language": "bn-BD",
+                "run_rag": False,
+            },
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert "transcription" in payload
+        assert payload["transcription"]["audio_bytes_len"] == len(fake_wav)
+
+    def test_llama_cpp_client_cloud_api_key_and_url_normalization(self) -> None:
+        from tinyrag.generation.llm_client import LlamaCppClient
+
+        cloud = LlamaCppClient(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            model="gemini-2.5-flash",
+            api_key=" test-gemini-key ",
+        )
+        assert cloud.api_key == "test-gemini-key"
+        assert cloud._headers() == {"Authorization": "Bearer test-gemini-key"}
+        assert (
+            cloud._chat_url()
+            == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        )
+
+        groq = LlamaCppClient(
+            base_url="https://api.groq.com/openai/v1",
+            model="llama-3.3-70b-versatile",
+            api_key="gsk_test",
+        )
+        assert groq._chat_url() == "https://api.groq.com/openai/v1/chat/completions"
+

@@ -77,6 +77,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import unicodedata
 import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -97,11 +98,18 @@ SCHEMA_VERSION: int = 1
 #: Centralised so the API and the DB can never disagree.
 SUPPORTED_DOC_TYPES: frozenset[str] = frozenset({"manual", "faq", "sensor_summary"})
 
-_BN_STOPWORDS: frozenset[str] = frozenset({
-    "কী", "কি", "বা", "এবং", "ও", "করে", "করতে", "হলে", "হয়", "হবে",
-    "এর", "দেখা", "দিলে", "জন্য", "থেকে", "পর", "কোন", "কোনো", "কিভাবে",
-    "কেন", "একটি", "এই", "যে", "তা", "না", "করা", "থাকে", "পারে", "দিতে",
-})
+_BN_STOPWORDS: frozenset[str] = frozenset(
+    unicodedata.normalize("NFC", w)
+    for w in {
+        "কী", "কি", "বা", "এবং", "ও", "করে", "করতে", "হলে", "হয়", "হয়", "হবে",
+        "এর", "দেখা", "দিলে", "জন্য", "থেকে", "পর", "কোন", "কোনো", "কিভাবে", "কীভাবে",
+        "কেন", "কখন", "কোথায়", "কোথায়", "কত", "লাগলে", "করব", "করবো", "দেব", "দেবো",
+        "দিব", "একটি", "এই", "যে", "তা", "না", "করা", "থাকে", "পারে", "দিতে",
+        "যায়", "যায়", "দিন", "বলুন", "বলো", "করণীয়", "করণীয়", "উপায়", "উপায়", "প্রতিকার",
+        "দমন", "দমনে", "দমনের", "ব্যবস্থা", "নিতে", "ব্যবহারের", "করার", "হয়ে", "হয়ে", "গেলে",
+        "দিয়ে", "দিয়ে", "সাথে", "মধ্যে", "হিসেবে",
+    }
+)
 
 _RERANK_STOPWORDS: frozenset[str] = frozenset({
     "a", "an", "and", "are", "as", "at", "be", "by", "do", "for",
@@ -299,12 +307,17 @@ class MetadataStore:
         with self._connect() as conn:
             for stmt in self._schema_sql():
                 conn.execute(stmt)
-            # Sync existing chunks into chunks_fts if it was newly created
+            # Sync existing chunks into chunks_fts without creating duplicates
+            # (FTS5 virtual tables have no UNIQUE constraint on UNINDEXED id).
             try:
-                conn.execute(
-                    "INSERT OR IGNORE INTO chunks_fts (id, document_id, text) "
-                    "SELECT id, document_id, text FROM chunks"
-                )
+                c_cnt = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+                f_cnt = conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0]
+                if f_cnt != c_cnt:
+                    conn.execute("DELETE FROM chunks_fts")
+                    conn.execute(
+                        "INSERT INTO chunks_fts (id, document_id, text) "
+                        "SELECT id, document_id, text FROM chunks"
+                    )
             except sqlite3.OperationalError:
                 pass
             # Record the current schema version. Use INSERT OR IGNORE
@@ -763,6 +776,7 @@ class MetadataStore:
         if not query or not query.strip():
             return []
 
+        query = unicodedata.normalize("NFC", query)
         raw_tokens = re.split(r"[\s\.,!?;:।॥\(\)\[\]\"'/\\]+", query)
         tokens = [
             t.strip()
@@ -784,9 +798,18 @@ class MetadataStore:
                 rows = conn.execute(
                     "SELECT id, bm25(chunks_fts) as rank FROM chunks_fts "
                     "WHERE chunks_fts MATCH ? ORDER BY rank LIMIT ?",
-                    (match_expr, limit),
+                    (match_expr, limit * 2),
                 ).fetchall()
-                return [(str(r[0]), float(r[1])) for r in rows]
+                seen: set[str] = set()
+                out: list[tuple[str, float]] = []
+                for r in rows:
+                    cid = str(r[0])
+                    if cid not in seen:
+                        seen.add(cid)
+                        out.append((cid, float(r[1])))
+                        if len(out) >= limit:
+                            break
+                return out
             except sqlite3.OperationalError:
                 return []
 

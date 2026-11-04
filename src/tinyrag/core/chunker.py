@@ -74,6 +74,7 @@ Location: ``src/tinyrag/core/chunker.py``
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 import tiktoken
@@ -297,6 +298,8 @@ class Chunker:
         if not text or not text.strip():
             return []
 
+        text = unicodedata.normalize("NFC", text)
+
         # ---- Step 1: encode --------------------------------------------
         # ``encode`` is the single hot path. ``allowed_special="all"``
         # permits any special tokens tiktoken might encounter
@@ -330,6 +333,7 @@ class Chunker:
         # progress even when sentence-trim shrinks a chunk past
         # ``start + stride`` (e.g. on very long sentences).
         last_end = 0
+        last_char_offset = 0
         while start < n_tokens:
             # Proposed window: [start, end) in token space.
             end = min(start + self._chunk_size, n_tokens)
@@ -372,7 +376,7 @@ class Chunker:
             # last_known_offset)`` to handle the rare case where
             # the same substring appears earlier in the document
             # (e.g. repeated headers).
-            char_offset = self._char_offset_in(text, chunk_text, last_end)
+            char_offset = self._char_offset_in(text, chunk_text, last_char_offset)
 
             chunks.append(
                 Chunk(
@@ -386,6 +390,7 @@ class Chunker:
             )
             chunk_index += 1
             last_end = trimmed_end
+            last_char_offset = max(last_char_offset, char_offset + 1)
 
             # If we just emitted the final chunk, stop.
             if is_last:
@@ -395,6 +400,12 @@ class Chunker:
             # (a sentence-trim that shrank the chunk past
             # ``start + stride`` must still make progress).
             new_start = max(last_end - self._chunk_overlap, start + 1)
+            # Align new_start to a valid UTF-8 boundary so a chunk never starts mid-character
+            while new_start < n_tokens - 1:
+                probe = self._encoding.decode(token_ids[new_start : min(new_start + 4, n_tokens)])
+                if not probe.startswith("\ufffd"):
+                    break
+                new_start += 1
             # And never past the end of the document.
             new_start = min(new_start, n_tokens - 1)
             if new_start <= start:
@@ -462,7 +473,7 @@ class Chunker:
         # when decoded as isolated tokens).
         for tok_idx in range(left, end):
             prefix_text = self._encoding.decode(token_ids[left : tok_idx + 1])
-            if len(prefix_text) >= char_pos_in_slice:
+            if not prefix_text.endswith("\ufffd") and len(prefix_text) >= char_pos_in_slice:
                 return tok_idx + 1
         return end
 

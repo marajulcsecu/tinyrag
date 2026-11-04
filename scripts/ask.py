@@ -83,6 +83,7 @@ from tinyrag.core import (  # noqa: E402
     adapt_metadata_store,
     build_citations_from_chunks,
 )
+from tinyrag.core.prompt_builder import BENGALI_AGRIRAG_SYSTEM_PROMPT  # noqa: E402
 from tinyrag.generation import (  # noqa: E402
     FakeLLMClient,
     LlamaCppClient,
@@ -335,7 +336,10 @@ def run_ask(
         metadata=metadata,
         default_threshold=default_threshold,
     )
-    prompt_builder = PromptBuilder.from_chunking_settings(settings.chunking)
+    prompt_builder = PromptBuilder.from_chunking_settings(
+        settings.chunking,
+        system_prompt=settings.llm.system_prompt or BENGALI_AGRIRAG_SYSTEM_PROMPT,
+    )
 
     # ---- Stage 1: retrieve --------------------------------------------
     t = time.monotonic()

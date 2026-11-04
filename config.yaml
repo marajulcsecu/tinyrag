@@ -140,11 +140,11 @@ chunking:
 retrieval:
   # Where the document-chunk FAISS index is persisted.
   # Created by `scripts/ingest.py` on first document upload.
-  doc_index_path: data/vector_store/doc.faiss
+  doc_index_path: data/agrirag/vector_store/doc.faiss
 
   # Where the sensor-summary FAISS index is persisted.
   # Created by `scripts/summarize_sensors.py` on first run.
-  sensor_index_path: data/vector_store/sensor.faiss
+  sensor_index_path: data/agrirag/vector_store/sensor.faiss
 
   # How many document chunks to retrieve for a query.
   # 5 is the empirical sweet spot for a small mixed corpus
@@ -186,7 +186,7 @@ sensors:
   source: simulated
 
   # Path to the synthetic sensor CSV (only used when source=simulated).
-  csv_path: data/sensor_logs/synthetic_30d.csv
+  csv_path: data/agrirag/sensor_logs/synthetic_30d.csv
 
   # Pin numbers for the real_serial source (only used when source=real_serial).
   # These match the wiring convention in docs/laptop_fallback/README.md
@@ -214,14 +214,14 @@ logging:
   path: logs/tinyrag.log
 
 paths:
-  # Where uploaded documents live (PDF, TXT, MD).
-  documents_dir: data/documents/
+  # Where uploaded documents live (PDF, TXT, MD) — isolated for AgriRAG branch.
+  documents_dir: data/agrirag/documents/
 
-  # Where the SQLite metadata DB is stored.
-  metadata_db: data/metadata.db
+  # Where the SQLite metadata DB is stored — isolated for AgriRAG branch.
+  metadata_db: data/agrirag/metadata.db
 
-  # Where the sensor CSVs live (the simulator writes here too).
-  sensor_logs_dir: data/sensor_logs/
+  # Where the sensor CSVs live (the simulator writes here too) — isolated for AgriRAG branch.
+  sensor_logs_dir: data/agrirag/sensor_logs/
 
   # Where the rotating log file lives (kept separate from logging.path
   # for symmetry with the documents/ + sensor_logs/ split).

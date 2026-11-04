@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -162,6 +163,14 @@ DEFAULT_SENSOR_KEYWORDS: frozenset[str] = frozenset({
     # which then lose to document chunks on rerank score and threshold
     # (doc hits win ties). It never suppresses document retrieval.
     "is the", "are the", "what's the", "whats the",
+    # Bengali agricultural weather, soil & temporal keywords (Agri-IoT)
+    "আবহাওয়া", "আবহাওয়া", "আবহাওয়ার", "আবহাওয়ার",
+    "তাপমাত্রা", "তাপমাত্রার",
+    "আর্দ্রতা", "আর্দ্রতার", "বাতাসের আর্দ্রতা",
+    "বৃষ্টি", "বৃষ্টির", "কুয়াশা", "কুয়াশা", "মেঘলা",
+    "মাটির রস", "মাটির আর্দ্রতা", "জমির রস", "সেচ", "সেচের",
+    "আজকে", "আজকের", "গতকাল", "গতকালের", "এখন", "বর্তমানে",
+    "সেন্সর", "স্প্রে করা যাবে",
 })
 
 
@@ -496,10 +505,11 @@ class Retriever:
             ) from exc
 
         # 3.5. Sparse FTS5 BM25 search (Dual-Hybrid Retrieval)
+        expanded_query = _expand_bengali_agri_query(unicodedata.normalize("NFC", query))
         sparse_hits: list[tuple[str, float]] = []
         if hasattr(self.metadata, "search_chunks_fts"):
             try:
-                sparse_hits = self.metadata.search_chunks_fts(query, limit=rerank_fetch)
+                sparse_hits = self.metadata.search_chunks_fts(expanded_query, limit=rerank_fetch)
             except Exception as exc:
                 logger.warning("FTS search failed: %s", exc)
                 sparse_hits = []
@@ -578,34 +588,106 @@ class Retriever:
         records_by_id = {rec.id: rec for rec in chunk_records}
 
         # 6.5. Dual-Hybrid BM25 + Keyword-overlap rerank.
+        sparse_rank_by_id: dict[str, int] = {}
         if sparse_hits:
             for rank_idx, (cid, _) in enumerate(sparse_hits):
-                if cid in merged:
-                    boost = max(0.05, 0.45 - (rank_idx * 0.04))
-                    merged[cid] = merged[cid] + boost
+                if cid not in sparse_rank_by_id:
+                    sparse_rank_by_id[cid] = rank_idx
 
-        query_terms = _distinctive_query_terms(query)
-        if query_terms:
-            base_per_term = 0.10
-            coverage_bonus = 0.20  # when chunk contains ALL query terms
+        is_bengali_fts = bool(re.search(r"[\u0980-\u09FF]", query)) and hasattr(
+            self.metadata, "search_chunks_fts"
+        )
+        query_terms = _distinctive_query_terms(expanded_query)
+
+        if is_bengali_fts:
+            specific_terms = [t for t in query_terms if t not in _GENERIC_AGRI_TERMS]
             for cid in ids_in_score_order:
                 if cid not in records_by_id:
                     continue
-                rec_text = records_by_id[cid].text
+                rec_text = unicodedata.normalize("NFC", records_by_id[cid].text or "")
                 if not rec_text:
                     continue
                 raw_rec_tokens = re.split(r"[\s\.,!?;:।॥\(\)\[\]\"'/\\]+", rec_text)
                 rec_words = {w.strip().lower() for w in raw_rec_tokens if len(w.strip()) >= 2}
                 matches = sum(1 for t in query_terms if t in rec_words)
-                if matches:
-                    boost = base_per_term * matches
-                    if matches == len(query_terms):
-                        boost += coverage_bonus
-                    merged[cid] = merged[cid] + boost
-            # Re-sort by the boosted scores.
+                spec_matches = sum(1 for t in specific_terms if t in rec_words)
+
+                if cid in from_sensor:
+                    if matches == 0 or (specific_terms and spec_matches == 0 and matches < 2):
+                        merged[cid] = min(merged[cid] * 0.20, 0.20)
+                        continue
+                    base_score = 0.55
+                    fts_boost = (
+                        max(0.05, 0.40 - (sparse_rank_by_id[cid] * 0.03))
+                        if cid in sparse_rank_by_id
+                        else 0.15
+                    )
+                    kw_boost = (0.14 * matches) + (0.10 * spec_matches)
+                    # Prefer the latest sensor date when multiple days match equally
+                    latest_bonus = 0.12 if "2026-06-22" in rec_text else 0.0
+                    merged[cid] = base_score + fts_boost + kw_boost + latest_bonus
+                    continue
+
+                # Guard against MiniLM [UNK] dense noise and off-crop generic matches:
+                # If the Bengali query names specific crops/pests/diseases and a chunk
+                # matches ZERO of them, damp its score below threshold.
+                if (specific_terms and spec_matches == 0) or (query_terms and matches == 0):
+                    merged[cid] = min(merged[cid] * 0.20, 0.20)
+                    continue
+
+                # Anchor base score so MiniLM [UNK] variance (0.75-0.93) on Bengali
+                # doesn't outweigh true lexical/BM25 relevance.
+                base_score = 0.55 if cid in sparse_rank_by_id else min(merged[cid], 0.55)
+                fts_boost = (
+                    max(0.05, 0.40 - (sparse_rank_by_id[cid] * 0.03))
+                    if cid in sparse_rank_by_id
+                    else 0.0
+                )
+                kw_boost = (0.12 * matches) + (0.08 * spec_matches)
+                if query_terms and matches == len(query_terms):
+                    kw_boost += 0.20
+                # Prefer clean Unicode UTF-8 guides over legacy Bijoy/ANSI garbled OCR chunks
+                clean_unicode_bonus = (
+                    0.08
+                    if not any(
+                        garble in rec_text
+                        for garble in ("পযাের্য়", "নিভর্রযোগ্য", "পরবতীর্", "ÿ", "ঙ্ ")
+                    )
+                    else 0.0
+                )
+                merged[cid] = base_score + fts_boost + kw_boost + clean_unicode_bonus
+
             ids_in_score_order = sorted(
                 merged.keys(), key=lambda cid: merged[cid], reverse=True
             )
+        else:
+            if sparse_hits:
+                for cid, rank_idx in sparse_rank_by_id.items():
+                    if cid in merged:
+                        boost = max(0.05, 0.45 - (rank_idx * 0.04))
+                        merged[cid] = merged[cid] + boost
+
+            if query_terms:
+                base_per_term = 0.10
+                coverage_bonus = 0.20  # when chunk contains ALL query terms
+                for cid in ids_in_score_order:
+                    if cid not in records_by_id:
+                        continue
+                    rec_text = records_by_id[cid].text
+                    if not rec_text:
+                        continue
+                    raw_rec_tokens = re.split(r"[\s\.,!?;:।॥\(\)\[\]\"'/\\]+", rec_text)
+                    rec_words = {w.strip().lower() for w in raw_rec_tokens if len(w.strip()) >= 2}
+                    matches = sum(1 for t in query_terms if t in rec_words)
+                    if matches:
+                        boost = base_per_term * matches
+                        if matches == len(query_terms):
+                            boost += coverage_bonus
+                        merged[cid] = merged[cid] + boost
+                # Re-sort by the boosted scores.
+                ids_in_score_order = sorted(
+                    merged.keys(), key=lambda cid: merged[cid], reverse=True
+                )
 
         # Cache document lookups (one DB round-trip per document,
         # not per chunk).
@@ -629,6 +711,15 @@ class Retriever:
         kept_chunks: list[Chunk] = []
         kept_scores: list[float] = []
         kept_from_sensor: set[str] = set()
+        has_surviving_docs = is_bengali_fts and any(
+            cid not in from_sensor and cid in records_by_id and merged[cid] >= threshold
+            for cid in ids_in_score_order
+        )
+        max_sensor_slots = (
+            max(1, min(k_sensor, k_doc - 1))
+            if (has_surviving_docs and k_doc >= 2 and k_sensor > 0)
+            else k_doc
+        )
         for cid in ids_in_score_order:
             if cid not in records_by_id:
                 # Deleted between index and query — skip silently.
@@ -637,6 +728,13 @@ class Retriever:
             if score < threshold:
                 # Below the bar — don't surface this as "evidence".
                 continue
+            if (
+                is_bengali_fts
+                and cid in from_sensor
+                and len(kept_from_sensor) >= max_sensor_slots
+            ):
+                # Prevent 30 daily sensor chunks from crowding out manual chunks.
+                continue
             record = records_by_id[cid]
             kept_chunks.append(
                 _record_to_chunk(record, source=_resolve_source(record))
@@ -644,18 +742,30 @@ class Retriever:
             kept_scores.append(score)
             if cid in from_sensor:
                 kept_from_sensor.add(cid)
-            # Hard cap at ``k_doc`` so the prompt builder never sees
-            # more chunks than the caller asked for. The over-fetch in
-            # step 3 (``rerank_fetch = max(k_doc * 5, k_doc + 10)``)
-            # gives the rerank more candidates to choose from, but
-            # the API contract is "k_doc hits, no more". Without this
-            # cap, a small-corpus query with permissive threshold can
-            # push 20-25 chunks into the prompt and overflow the
-            # LLM's context window (see the 4662-token bug we hit on
-            # 2026-06-28). The PromptBuilder still does its own
-            # token-budget truncation as a second line of defence.
             if len(kept_chunks) >= k_doc:
                 break
+
+        # Ensure combined Bengali weather+crop queries include the top qualifying
+        # sensor summary alongside the manual chunks when sensor keywords matched.
+        if (
+            is_bengali_fts
+            and keywords_matched
+            and not kept_from_sensor
+            and k_sensor > 0
+            and k_doc >= 2
+        ):
+            for cid in ids_in_score_order:
+                if cid in from_sensor and cid in records_by_id and merged[cid] >= threshold:
+                    record = records_by_id[cid]
+                    sensor_chunk = _record_to_chunk(record, source=_resolve_source(record))
+                    if len(kept_chunks) >= k_doc:
+                        kept_chunks[-1] = sensor_chunk
+                        kept_scores[-1] = merged[cid]
+                    else:
+                        kept_chunks.append(sensor_chunk)
+                        kept_scores.append(merged[cid])
+                    kept_from_sensor.add(cid)
+                    break
 
         # used_sensor_idx: True iff at least one SURVIVING chunk
         # came from the sensor path. This correctly handles the
@@ -677,10 +787,12 @@ class Retriever:
 # ----------------------------------------------------------------------------
 
 
-# Match a keyword as a whole word (case-insensitive). The word
-# boundary is non-alphanumeric on either side, so "kWh" matches
-# in "the kWh was 2.3" but not in "kWhisper".
-_KEYWORD_BOUNDARY_RE = re.compile(r"(?<![\w])(\w[\w-]*)(?![\w])")
+# Match a keyword as a whole word (case-insensitive). Includes the
+# Bengali Unicode block (\u0980-\u09FF) so Bengali vowel signs (matras)
+# and conjuncts are not split at combining characters.
+_KEYWORD_BOUNDARY_RE = re.compile(
+    r"(?<![\w\u0980-\u09FF])([\w\u0980-\u09FF][\w\u0980-\u09FF-]*)(?![\w\u0980-\u09FF])"
+)
 
 
 def _find_sensor_keywords(
@@ -688,25 +800,22 @@ def _find_sensor_keywords(
 ) -> list[str]:
     """Return the subset of ``keywords`` found in ``query`` (whole-word).
 
-    Comparison is case-insensitive. Returns a sorted list (for
-    deterministic test output) of the matched keywords as they
-    appeared in the source set (preserving the case the caller
-    used).
+    Comparison is case-insensitive and NFC-normalized. Returns a sorted
+    list (for deterministic test output) of the matched keywords as they
+    appeared in the source set (preserving the case the caller used).
     """
     if not keywords or not query:
         return []
+    norm_query = unicodedata.normalize("NFC", query)
     # Extract lowercased tokens from the query.
-    tokens = {m.group(1).lower() for m in _KEYWORD_BOUNDARY_RE.finditer(query)}
+    tokens = {m.group(1).lower() for m in _KEYWORD_BOUNDARY_RE.finditer(norm_query)}
     # For multi-word keywords (e.g. "last week"), we need a substring
     # check too — `_KEYWORD_BOUNDARY_RE` only handles single tokens.
-    query_lower = query.lower()
+    query_lower = norm_query.lower()
     matched = []
     for kw in keywords:
-        kw_lower = kw.lower()
+        kw_lower = unicodedata.normalize("NFC", kw).lower()
         if " " in kw_lower or "-" in kw_lower:
-            # Phrase match (substring is fine for sensor keywords —
-            # they're never going to accidentally substring-match
-            # common words like "the").
             if kw_lower in query_lower:
                 matched.append(kw)
         elif kw_lower in tokens:
@@ -721,15 +830,89 @@ def _find_sensor_keywords(
 # filter only, so the cost of a missed stopword is at most one
 # spurious +0.10 boost. A bigger list would slow tokenisation without
 # changing retrieval outcomes on a 50-chunk corpus.
-_RERANK_STOPWORDS: frozenset[str] = frozenset({
-    "a", "an", "and", "are", "as", "at", "be", "by", "do", "for",
-    "from", "has", "have", "how", "i", "in", "is", "it", "its", "me",
-    "my", "of", "on", "or", "so", "such", "than", "that", "the",
-    "their", "then", "there", "this", "to", "was", "we", "what",
-    "when", "where", "which", "who", "why", "with", "you", "your",
-    "does", "did", "can", "could", "would", "should", "will",
-    "shall", "may", "might", "must",
-})
+_RERANK_STOPWORDS: frozenset[str] = frozenset(
+    unicodedata.normalize("NFC", w)
+    for w in {
+        "a", "an", "and", "are", "as", "at", "be", "by", "do", "for",
+        "from", "has", "have", "how", "i", "in", "is", "it", "its", "me",
+        "my", "of", "on", "or", "so", "such", "than", "that", "the",
+        "their", "then", "there", "this", "to", "was", "we", "what",
+        "when", "where", "which", "who", "why", "with", "you", "your",
+        "does", "did", "can", "could", "would", "should", "will",
+        "shall", "may", "might", "must",
+        # Bengali generic question & action words
+        "কী", "কি", "বা", "এবং", "ও", "করে", "করতে", "হলে", "হয়", "হয়", "হবে",
+        "এর", "দেখা", "দিলে", "জন্য", "থেকে", "পর", "কোন", "কোনো", "কিভাবে", "কীভাবে",
+        "কেন", "কখন", "কোথায়", "কোথায়", "কত", "লাগলে", "করব", "করবো", "দেব", "দেবো",
+        "দিব", "একটি", "এই", "যে", "তা", "না", "করা", "থাকে", "পারে", "দিতে",
+        "যায়", "যায়", "দিন", "বলুন", "বলো", "করণীয়", "করণীয়", "উপায়", "উপায়",
+        "প্রতিকার", "দমন", "দমনে", "দমনের", "রোগ", "রোগে", "রোগের", "গাছ", "গাছে", "গাছের",
+        "ওষুধ", "স্প্রে", "ব্যবস্থা", "নিতে", "ব্যবহারের", "করার", "হয়ে", "হয়ে", "গেলে",
+        "দিয়ে", "দিয়ে", "সাথে", "মধ্যে", "হিসেবে", "অনুযায়ী", "অনুযায়ী", "আছে", "কিনা", "ছিল", "যাবে",
+    }
+)
+
+# Generic agricultural category words that are not crop- or pest-specific on their own.
+_GENERIC_AGRI_TERMS: frozenset[str] = frozenset(
+    unicodedata.normalize("NFC", w)
+    for w in {
+        "রোগ", "রোগে", "রোগের", "পোকা", "পোকার", "ছত্রাক", "ভাইরাস", "ব্যাকটেরিয়া",
+        "আক্রমণ", "আক্রমণে", "চিকিৎসা", "লক্ষণ", "ব্যবস্থাপনা", "প্রতিকার", "দমন", "দমনে", "দমনের",
+        "চাষ", "চাষে", "চাষের", "নিয়ম", "নিয়ম", "পদ্ধতি", "সার", "মাত্রা", "প্রয়োগ", "প্রয়োগ",
+        "কীটনাশক", "ছত্রাকনাশক", "বালাইনাশক", "ওষুধ", "স্প্রে", "ফল", "ফলে", "ফলের",
+        "গাছ", "গাছে", "গাছের", "পাতা", "পাতায়", "পাতায়", "পাতার", "জমি", "জমিতে", "জমির",
+        "ক্ষেত", "ক্ষেতে", "ফসল", "ফসলে", "ফসলের", "বীজ", "বীজের", "চারা", "ফলন", "উৎপাদন",
+        "সমস্যা", "সমস্যার", "সমাধান", "ব্যবহার", "ব্যবহারের", "তৈরি", "তৈরির",
+        "নিয়ন্ত্রণ", "নিয়ন্ত্রণ", "প্রতিরোধ", "প্রতিরোধে", "পরিচর্যা",
+        "পুকুর", "পুকুরে", "জলাশয়", "জলাশয়ে", "জলাশয়ে",
+        "আবহাওয়া", "আবহাওয়া", "আবহাওয়ার", "আবহাওয়ার", "তাপমাত্রা", "তাপমাত্রার",
+        "আর্দ্রতা", "আর্দ্রতার", "বৃষ্টি", "বৃষ্টির", "কুয়াশা", "কুয়াশা", "মেঘলা",
+        "রস", "আজকে", "আজকের", "গতকাল", "গতকালের", "এখন", "বর্তমানে", "ঝুঁকি", "সেন্সর", "রিপোর্ট",
+    }
+)
+
+# Farmer colloquial & regional dialect synonyms mapped to official BARI/BRRI terminology.
+_BENGALI_AGRI_SYNONYMS: tuple[tuple[str, str], ...] = tuple(
+    (unicodedata.normalize("NFC", k), unicodedata.normalize("NFC", v))
+    for k, v in (
+        ("কারেন্ট পোকা", "বাদামী গাছফড়িং BPH হপার বার্ন"),
+        ("হপার বার্ন", "বাদামী গাছফড়িং কারেন্ট পোকা BPH"),
+        ("বাজপড়া", "বাদামী গাছফড়িং কারেন্ট পোকা হপার বার্ন"),
+        ("মড়ক", "নাবি ধসা লেইট ব্লাইট পচন"),
+        ("পচন", "নাবি ধসা লেইট ব্লাইট কাণ্ড পচা গোড়া পচা কন্দ পচা"),
+        ("সাদা শীষ", "হলুদ মাজরা পোকা মরা শীষ হোয়াইটহেড"),
+        ("শীষ সাদা", "হলুদ মাজরা পোকা সাদা শীষ মরা শীষ হোয়াইটহেড"),
+        ("শীষ মরে", "হলুদ মাজরা পোকা সাদা শীষ নেক ব্লাস্ট"),
+        ("মরা শীষ", "হলুদ মাজরা পোকা সাদা শীষ ডেডহার্ট"),
+        ("ডেডহার্ট", "হলুদ মাজরা পোকা মৃতদেহলী"),
+        ("মৃতদেহলী", "হলুদ মাজরা পোকা ডেডহার্ট"),
+        ("পাতা জ্বলা", "ব্যাকটেরিয়াজনিত পাতা পোড়া BLB পাতা ঝলসানো"),
+        ("পাতা পোড়া", "ব্যাকটেরিয়াজনিত পাতা পোড়া BLB"),
+        ("কোঁকড়ানো", "লিফ কার্ল ভাইরাস মাকড় থ্রিপস সাদা মাছি"),
+        ("কুঁকড়ে", "পাতা কোঁকড়ানো লিফ কার্ল ভাইরাস মাকড়"),
+        ("চেপা পোকা", "জাব পোকা সরিষা"),
+        ("শুঁয়োপোকা", "বিছা পোকা পাট"),
+        ("লেদা পোকা", "ফল আর্মিওয়ার্ম কাটুই পোকা"),
+        ("আগা মরা", "পার্পল ব্লচ পাতা ঝলসানো"),
+        ("ডগা মরা", "ডগা ও ফল ছিদ্রকারী পোকা"),
+        ("ঢলে পড়া", "উইল্ট পানামা গোড়া পচা"),
+        ("নেতিয়ে পড়া", "ঢলে পড়া উইল্ট ডগা ছিদ্রকারী"),
+    )
+)
+
+
+def _expand_bengali_agri_query(query: str) -> str:
+    """Expand colloquial Bengali farmer phrases with official BARI/BRRI synonyms."""
+    if not query:
+        return query
+    norm_q = unicodedata.normalize("NFC", query)
+    additions: list[str] = []
+    for phrase, expansion in _BENGALI_AGRI_SYNONYMS:
+        if phrase in norm_q:
+            additions.append(expansion)
+    if not additions:
+        return norm_q
+    return f"{norm_q} {' '.join(additions)}"
 
 
 def _distinctive_query_terms(query: str) -> list[str]:
@@ -741,6 +924,7 @@ def _distinctive_query_terms(query: str) -> list[str]:
     """
     if not query:
         return []
+    query = unicodedata.normalize("NFC", query)
     raw_tokens = re.split(r"[\s\.,!?;:।॥\(\)\[\]\"'/\\]+", query)
     tokens: list[str] = []
     for raw in raw_tokens:

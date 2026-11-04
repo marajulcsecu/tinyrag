@@ -498,6 +498,27 @@ class TestAnswerDataclass:
         a = Answer(query="q", text="")
         assert a.is_refusal is False
 
+    def test_is_refusal_true_on_bengali_refusal(self) -> None:
+        a = Answer(query="q", text="প্রদত্ত নথিতে এ সম্পর্কিত পর্যাপ্ত তথ্য পাওয়া যায়নি।")
+        assert a.is_refusal is True
+
+    def test_is_fallback_advisory_true_on_layer2_prefix(self) -> None:
+        from tinyrag.core.prompt_builder import BENGALI_LAYER2_FALLBACK_PREFIX
+
+        a = Answer(
+            query="ড্রাগন ফলের ছত্রাক রোগে কী করব?",
+            text=f"{BENGALI_LAYER2_FALLBACK_PREFIX}\n১. আক্রান্ত অংশ ছাঁটাই করুন। ১৬১২৩ নম্বরে কল করুন।",
+        )
+        assert a.is_fallback_advisory is True
+        assert a.is_refusal is False
+
+    def test_is_fallback_advisory_false_on_grounded_answer(self) -> None:
+        a = Answer(
+            query="ধানের মাজরা পোকা দমনে করণীয় কী?",
+            text="মাজরা পোকা দমনে কারটাপ ৫০ এসপি ১.৪০ কেজি/হেক্টর প্রয়োগ করুন [উৎস: bangla_krishi_pest_and_crop_handbook.md, পৃষ্ঠা ১]।",
+        )
+        assert a.is_fallback_advisory is False
+
 
 class TestMakePreview:
     """``_make_preview`` collapses whitespace + truncates at word boundary."""

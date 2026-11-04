@@ -3,25 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AgriRAG — অফলাইন কৃষি এআই সহকারী</title>
+    <meta name="theme-color" content="#1a4d2e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="AgriRAG">
+    <title>{{ title | default("AgriRAG (TinyRAG) — বাংলার কৃষি এআই সহায়ক") }}</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <header class="topbar">
-        <h1 class="brand">AgriRAG <span class="subbrand">🌾 কৃষি সহকারী</span></h1>
-        <div class="status">
-            <label class="tts-toggle" title="উত্তর স্বয়ংক্রিয়ভাবে অডিওতে পড়ে শোনাবে">
+        <h1 class="brand">🌾 AgriRAG <span class="subbrand">বাংলার কৃষি এআই সহায়ক (TinyRAG)</span></h1>
+        <div class="status" id="status-bar" aria-live="polite">
+            <label class="tts-toggle" title="উত্তরগুলো স্বয়ংক্রিয়ভাবে বাংলায় পড়ে শোনাবে">
                 <input type="checkbox" id="tts-toggle" checked>
-                <span class="tts-label">🔊 অডিও উত্তর</span>
+                <span class="tts-label">🔊 ভয়েস উত্তর</span>
             </label>
-            <span id="status-pill" class="pill pill-loading" title="Subsystem health from /api/status">checking…</span>
-            <span id="model-name" class="model-name" title="Active LLM"></span>
-            <a class="navlink" href="/admin">Admin →</a>
+            <button type="button" id="stop-tts-btn" class="btn-stop-audio" title="চলমান ভয়েস পড়া থামান">
+                ⏹️ থামান
+            </button>
+            <label class="tts-toggle" title="মাইকে কথা বলা শেষ হলে ২ সেকেন্ড বিরতির পর স্বয়ংক্রিয়ভাবে প্রশ্ন পাঠাবে">
+                <input type="checkbox" id="autosend-toggle" checked>
+                <span class="tts-label">⚡ অটো-সেন্ড</span>
+            </label>
+            <button type="button" id="engine-btn" class="btn-engine-switch" title="লোকাল অফলাইন মডেল বা ক্লাউড API Key মোড পরিবর্তন ও মোবাইলে ব্যবহারের নির্দেশিকা">
+                🖥️ লোকাল ইঞ্জিন
+            </button>
+            <span class="model-name" id="model-name">—</span>
+            <span class="pill pill-loading" id="status-pill">checking…</span>
+            <a href="/admin" class="navlink" id="admin-link">Admin</a>
         </div>
     </header>
 
-    <main class="chat" aria-live="polite">
-        <section id="status-panel" class="panel status-panel" aria-labelledby="status-heading">
+    <main class="chat" id="chat" aria-live="polite">
+        <!--
+            Step 4.23 — System Status panel. Populated by status.js
+            every 5 s from GET /api/status. Starts collapsed on the
+            chat page so the conversation keeps maximum vertical
+            space; click "Show" to expand. Every value cell starts
+            with an em-dash placeholder so the layout doesn't jump
+            when the first poll lands.
+        -->
+        <section id="status-panel" class="panel status-panel" aria-labelledby="status-heading" aria-label="System status">
             <div class="panel-header">
                 <h2 id="status-heading">System status</h2>
                 <button id="status-toggle" type="button" class="btn-secondary"
@@ -71,49 +95,119 @@
             </div>
         </section>
 
-        <div id="messages" class="messages">
-            {# Welcome message — rendered server-side so the page is
-               useful before chat.js loads. chat.js may replace this
-               on first /api/status poll. #}
+        <div class="messages" id="messages">
             <div class="message message-assistant">
                 <div class="bubble">
-                    <p>🌾 <strong>স্বাগতম! আমি AgriRAG</strong> — আপনার অফলাইন কৃষি এআই সহকারী।</p>
-                    <p>বাংলাদেশ ধান গবেষণা ইনস্টিটিউট (BRRI) ও কৃষি গবেষণা ইনস্টিটিউট (BARI)-এর অফিশিয়াল তথ্যভাণ্ডার থেকে আপনার ফসল ও রোগবালাই সংক্রান্ত যেকোনো সমস্যা বাংলায় লিখে বা <strong>মাইক্রোফোন (🎙️) চেপে মুখে কথা বলে</strong> জিজ্ঞেস করতে পারেন।</p>
+                    <p><strong>আসসালামু আলাইকুম! আমি আপনার কৃষি এআই সহায়ক (AgriRAG)।</strong> 🌱</p>
+                    <p>বাংলাদেশের ধান, আলু, সবজি, ফল ও মসলা ফসলের রোগ-বালাই, পোকা দমন, সঠিক বালাইনাশকের মাত্রা এবং আজকের মাঠের আবহাওয়া/মাটির আর্দ্রতা সম্পর্কে বাংলায় লিখে অথবা <strong>🎤 মাইক বাটনে চাপ দিয়ে কথা বলে</strong> প্রশ্ন করুন। উত্তরটি আমি বাংলায় লিখে ও পড়ে শোনাব!</p>
                 </div>
             </div>
         </div>
     </main>
 
-    <div class="quick-chips" id="quick-chips">
-        <button type="button" class="chip" data-query="ধানের ব্লাস্ট রোগ ও পাতা পোড়া দমনে কী ওষুধ স্প্রে করতে হয়?">🌾 ধানের ব্লাস্ট রোগ</button>
-        <button type="button" class="chip" data-query="আলুর নাবি ধসা রোগ দমনে কী ওষুধ স্প্রে করতে হয়?">🥔 আলুর নাবি ধসা</button>
-        <button type="button" class="chip" data-query="বেগুনের ডগা ও ফল ছিদ্রকারী পোকা দমনে সেক্স ফেরোমোন ফাঁদ কীভাবে ব্যবহার করব?">🍆 বেগুনের পোকা দমন</button>
-        <button type="button" class="chip" data-query="বিঘা প্রতি জমিতে ধানের বিভিন্ন সারের মাত্রা কত?">🌱 ধানের সার মাত্রা</button>
-        <button type="button" class="chip" data-query="কীটনাশক স্প্রে করার পর কতদিন পর্যন্ত সবজি তোলা যাবে না?">⚠️ কীটনাশক নিরাপত্তা</button>
+    <!-- Categorized Quick Suggestion Chips (Farmer-First Visual Touch Bar) -->
+    <div class="chip-categories" id="chip-categories" aria-label="ফসলের বিভাগ নির্বাচন">
+        <button type="button" class="cat-tab active" data-cat="all">🌿 সব</button>
+        <button type="button" class="cat-tab" data-cat="rice">🌾 ধান</button>
+        <button type="button" class="cat-tab" data-cat="potato">🥔 আলু</button>
+        <button type="button" class="cat-tab" data-cat="veg">🍆 সবজি</button>
+        <button type="button" class="cat-tab" data-cat="fruit">🥭 ফল ও মসলা</button>
+        <button type="button" class="cat-tab" data-cat="sensor">🌡️ মাঠের আবহাওয়া ও মাটি</button>
+        <button type="button" class="cat-tab" data-cat="safety">⚠️ নিরাপদ স্প্রে</button>
     </div>
 
-    <form id="composer" class="composer" autocomplete="off">
-        <label for="query" class="visually-hidden">Your question</label>
-        <button id="mic-btn" type="button" class="btn-mic" title="ভয়েস ইনপুট (বাংলায় কথা বলুন)" aria-label="Microphone Voice Input">🎙️</button>
+    <div class="quick-chips" id="quick-chips" aria-label="দ্রুত প্রশ্ন করার বাটন">
+        <button type="button" class="chip" data-cat="rice" data-query="ধানের ব্লাস্ট ও শীষ ব্লাস্ট রোগের লক্ষণ ও অনুমোদিত ওষুধের মাত্রা কী?">🌾 ধানের ব্লাস্ট রোগ</button>
+        <button type="button" class="chip" data-cat="rice" data-query="ধান গাছের গোড়া পচে যাচ্ছে এবং গাছ বসে যাচ্ছে (কারেন্ট পোকা), এখন কী করব?">🦗 ধানের কারেন্ট পোকা (BPH)</button>
+        <button type="button" class="chip" data-cat="rice" data-query="ধানের মাজরা পোকা (মরা ডিগ ও সাদা শীষ) দমনের উপায় কী?">🐛 ধানের মাজরা পোকা</button>
+        <button type="button" class="chip" data-cat="potato" data-query="আলুর মড়ক বা লেট ব্লাইট (পাতা ঝলসানো) রোগ দমনে কোন ছত্রাকনাশক কতটুকু স্প্রে করব?">🥔 আলুর মড়ক রোগ (লেট ব্লাইট)</button>
+        <button type="button" class="chip" data-cat="potato" data-query="আলু গাছের গোড়া কেটে দিচ্ছে (কাটুই পোকা), এর প্রতিকার কী?">🥔 আলুর কাটুই পোকা</button>
+        <button type="button" class="chip" data-cat="veg" data-query="বেগুনের ডগা ও ফল ছিদ্রকারী পোকা দমনের জৈব ও রাসায়নিক উপায় কী?">🍆 বেগুনের ডগা ও ফল ছিদ্রকারী পোকা</button>
+        <button type="button" class="chip" data-cat="veg" data-query="টমেটোর পাতা কোঁকড়ানো ভাইরাস ও সাদা মাছি দমনে কী করণীয়?">🍅 টমেটোর পাতা কোঁকড়ানো রোগ</button>
+        <button type="button" class="chip" data-cat="veg" data-query="লাউ ও কুমড়ার মাছি পোকা দমনে সেক্স ফেরোমন ও বিষটোপ ফাঁদ কীভাবে ব্যবহার করব?">🎃 কুমড়া জাতীয় ফসলের মাছি পোকা</button>
+        <button type="button" class="chip" data-cat="fruit" data-query="আমের হপার পোকা ও অ্যানথ্রাকনোজ রোগ দমনে মুকুল আসার পর কখন কী স্প্রে করব?">🥭 আমের হপার পোকা ও মুকুল ঝরা</button>
+        <button type="button" class="chip" data-cat="fruit" data-query="পেঁয়াজের পার্পল ব্লচ (পাতা ঝলসানো) ও থ্রিপস পোকা দমনের উপায় কী?">🧅 পেঁয়াজের পার্পল ব্লচ</button>
+        <button type="button" class="chip" data-cat="sensor" data-query="আজকের ধান ও আলু ক্ষেতের তাপমাত্রা, আর্দ্রতা ও মাটির রস কেমন এবং ব্লাস্ট বা মড়ক রোগের ঝুঁকি আছে কি?">🌡️ আজকের আবহাওয়া ও রোগের ঝুঁকি</button>
+        <button type="button" class="chip" data-cat="safety" data-query="জমিতে মাকড়সা ও লেডিবার্ড বিটল (উপকারী পোকা) থাকলে এবং কীটনাশক স্প্রে করার সময় কী কী সতর্কতা মানতে হবে?">🐞 উপকারী পোকা ও স্প্রে নিরাপত্তা</button>
+    </div>
+
+    <form class="composer" id="composer" autocomplete="off">
+        <button type="button" id="mic-btn" class="btn-mic" title="ভয়েস ইনপুট (বাংলায় কথা বলুন)" aria-label="বাংলায় কথা বলে প্রশ্ন করুন">
+            🎤
+        </button>
+        <label for="query" class="visually-hidden">আপনার কৃষি বিষয়ক প্রশ্ন</label>
         <textarea
             id="query"
             name="query"
             rows="2"
             placeholder="ফসলের রোগ বা সমস্যা সম্পর্কে বলুন বা লিখুন… (যেমন: ধানের পাতা পোড়া রোগে কী স্প্রে করব?)"
             required
-            minlength="1"
         ></textarea>
-        <button id="send" type="submit" class="send-button">পাঠান</button>
+        <button type="submit" id="send" class="send-button">পাঠান</button>
     </form>
 
+    <!-- Hybrid Engine & 3-Way Mobile Access Modal -->
+    <div class="modal-backdrop modal-hidden" id="engine-modal" role="dialog" aria-modal="true" aria-labelledby="engine-modal-title">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2 id="engine-modal-title">⚙️ ইঞ্জিন মোড ও মোবাইলে ব্যবহার (Hybrid Local / Cloud API)</h2>
+                <button type="button" id="engine-modal-close" class="btn-secondary">✕ বন্ধ করুন</button>
+            </div>
+            <div class="modal-body">
+                <p class="help-text">
+                    আপনার পিসি বা ফোনে শক্তিশালী র‍্যাম না থাকলেও যেন AgriRAG ব্যবহার করতে পারেন, সেজন্য দুটি ইঞ্জিন মোড রাখা হয়েছে:
+                </p>
+                <div class="engine-mode-group">
+                    <label class="engine-radio-card">
+                        <input type="radio" name="engine_mode" id="mode-local" value="local" checked>
+                        <div>
+                            <strong>🖥️ লোকাল অফলাইন ইঞ্জিন (Gemma 4 E2B — llama.cpp)</strong>
+                            <div class="help-text">ইন্টারনেট ছাড়াই ১০০% অফলাইনে চলে (ল্যাপটপ/পিসি সার্ভারে)। কোনো API Key লাগে না।</div>
+                        </div>
+                    </label>
+                    <label class="engine-radio-card">
+                        <input type="radio" name="engine_mode" id="mode-cloud" value="cloud">
+                        <div>
+                            <strong>☁️ ক্লাউড API মোড (Gemini / Groq / OpenAI)</strong>
+                            <div class="help-text">কম বাজেটের ল্যাপটপ বা সাধারণ ফোনে দ্রুত উত্তর পেতে আপনার ফ্রি/পেইড API Key ব্যবহার করুন (RAG ও সেন্সর লোকালই থাকবে)।</div>
+                        </div>
+                    </label>
+                </div>
+
+                <div id="cloud-config-fields" class="cloud-config-box">
+                    <div class="preset-row">
+                        <span class="status-label">দ্রুত প্রিসেট:</span>
+                        <button type="button" class="chip preset-btn" data-url="https://generativelanguage.googleapis.com/v1beta/openai" data-model="gemini-2.5-flash">✨ Google Gemini (Free Tier)</button>
+                        <button type="button" class="chip preset-btn" data-url="https://api.groq.com/openai/v1" data-model="llama-3.3-70b-versatile">⚡ Groq (Ultra Fast)</button>
+                        <button type="button" class="chip preset-btn" data-url="https://api.openai.com/v1" data-model="gpt-4o-mini">🤖 OpenAI</button>
+                    </div>
+                    <label class="field-label" for="cloud-api-key">API Key (আপনার ব্রাউজারেই সুরক্ষিত থাকবে)</label>
+                    <input type="password" id="cloud-api-key" class="modal-input" placeholder="AIzaSy... অথবা gsk_... অথবা sk-..." autocomplete="off">
+
+                    <label class="field-label" for="cloud-base-url">OpenAI-Compatible Base URL</label>
+                    <input type="text" id="cloud-base-url" class="modal-input" value="https://generativelanguage.googleapis.com/v1beta/openai">
+
+                    <label class="field-label" for="cloud-model">Model Name</label>
+                    <input type="text" id="cloud-model" class="modal-input" value="gemini-2.5-flash">
+                </div>
+
+                <div class="mobile-guide-box">
+                    <strong>📱 সাধারণ মোবাইল ফোনে চালানোর ৩টি উপায়:</strong>
+                    <ul>
+                        <li><strong>উপায় ১ (একই Wi-Fi / হটস্পট):</strong> ল্যাপটপে <code>API_HOST=0.0.0.0 bash run.sh</code> চালিয়ে ফোনের ব্রাউজারে ল্যাপটপের IP ঠিকানায় ঢুকলে ২ জিবি র‍্যামের ফোনেও ভয়েস-টু-ভয়েস চলবে।</li>
+                        <li><strong>উপায় ২ (ক্লাউড API Key):</strong> উপরের <em>ক্লাউড API মোড</em> চালু করে ফ্রি Gemini/Groq API Key দিলে ভারী লোকাল মডেল ছাড়াই সুপার-ফাস্ট উত্তর পাবেন।</li>
+                        <li><strong>উপায় ৩ (মোবাইল অ্যাপ / PWA):</strong> ফোনের Chrome মেনু থেকে <em>"Add to Home Screen / Install App"</em> চাপলে এটি মোবাইল অ্যাপ হিসেবে ইনস্টল হয়ে যাবে।</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" id="engine-save-btn" class="send-button">💾 সংরক্ষণ করুন</button>
+            </div>
+        </div>
+    </div>
+
     <footer class="footer">
-        <small>
-            <a href="/docs" target="_blank" rel="noopener">API docs</a>
-            ·
-            <a href="/api/status" target="_blank" rel="noopener">status</a>
-            ·
-            streaming via <code>POST /api/query?stream=true</code>
-        </small>
+        <span>AgriRAG (TinyRAG) · অফলাইন/হাইব্রিড ভয়েস-টু-ভয়েস কৃষি এআই (BARI / BRRI / DAE নির্দেশিকা ভিত্তিক) · <code>POST /api/query?stream=true</code> · <a href="/admin">ডকুমেন্ট আপলোড (Admin)</a> · <a href="/docs">API docs</a> · <a href="/api/status">status JSON</a></span>
     </footer>
 
     <script src="/static/chat.js" defer></script>

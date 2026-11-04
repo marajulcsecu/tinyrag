@@ -133,6 +133,22 @@ class AskRequest(BaseModel):
     )
     max_tokens: int = Field(default=512, ge=1, le=4096)
     log_query: bool = Field(default=True)
+    engine_mode: str | None = Field(
+        default=None,
+        description="Optional engine mode: 'local' (default offline llama-server) or 'cloud' (OpenAI-compatible API).",
+    )
+    api_key: str | None = Field(
+        default=None,
+        description="Optional Cloud API key (e.g., Gemini, Groq, OpenAI) when engine_mode='cloud'.",
+    )
+    api_base_url: str | None = Field(
+        default=None,
+        description="Optional OpenAI-compatible base URL for Cloud API mode.",
+    )
+    api_model: str | None = Field(
+        default=None,
+        description="Optional Cloud model identifier (e.g., gemini-2.5-flash, llama-3.3-70b-versatile).",
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -460,6 +476,41 @@ class DocumentDeleteResponse(BaseModel):
 DocumentUploadResponse = dict[str, Any]
 
 
+# ----------------------------------------------------------------------------
+# POST /api/voice (Phase 5 — Bengali Voice Input Adapter)
+# ----------------------------------------------------------------------------
+
+
+class VoiceQueryRequest(BaseModel):
+    """JSON body for ``POST /api/voice`` when sending base64 audio or a transcript hint."""
+
+    audio_base64: str | None = Field(
+        default=None,
+        description="Optional base64-encoded audio bytes (WAV/WebM/Ogg/MP3).",
+    )
+    transcript_hint: str | None = Field(
+        default=None,
+        description="Optional pre-transcribed Bengali question from Web Speech API.",
+    )
+    language: str = Field(
+        default="bn-BD",
+        description="BCP-47 language tag (defaults to bn-BD).",
+    )
+    run_rag: bool = Field(
+        default=True,
+        description="If true and transcription succeeds, immediately run the RAG pipeline.",
+    )
+    engine_mode: str | None = Field(default=None)
+    api_key: str | None = Field(default=None)
+    api_base_url: str | None = Field(default=None)
+    api_model: str | None = Field(default=None)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+VoiceQueryResponse = dict[str, Any]
+
+
 __all__ = [
     "AskRequest",
     "AskResponse",
@@ -470,4 +521,6 @@ __all__ = [
     "ErrorResponse",
     "NotImplementedResponse",
     "StatusResponse",
+    "VoiceQueryRequest",
+    "VoiceQueryResponse",
 ]

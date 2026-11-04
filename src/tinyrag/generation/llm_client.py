@@ -408,11 +408,14 @@ class LlamaCppClient:
     model: str = "phi-3-mini"
     timeout_s: float = DEFAULT_TIMEOUT_S
     chat_completions_path: str = DEFAULT_CHAT_COMPLETIONS_PATH
+    api_key: str | None = None
     client: httpx.Client | None = None
 
     def __post_init__(self) -> None:
         # Strip a trailing slash so base_url + path concat is clean.
         self.base_url = self.base_url.rstrip("/")
+        if self.api_key is not None:
+            self.api_key = self.api_key.strip() or None
         # Lazily construct the httpx.Client so import-time is cheap.
         # We don't open a connection until the first request.
         if self.client is None:
@@ -421,6 +424,35 @@ class LlamaCppClient:
             self._owns_client = False
 
     # ----- internal helpers --------------------------------------------
+
+    def _headers(self) -> dict[str, str]:
+        """Return optional Bearer auth headers for Cloud OpenAI-compatible APIs."""
+        if self.api_key:
+            return {"Authorization": f"Bearer {self.api_key}"}
+        return {}
+
+    def _chat_url(self) -> str:
+        """Resolve the full chat completions URL across local llama-server and cloud APIs.
+
+        Handles base URLs that already end with ``/v1`` or ``/openai`` (such as
+        Groq ``https://api.groq.com/openai/v1``, OpenAI ``https://api.openai.com/v1``,
+        or Gemini ``https://generativelanguage.googleapis.com/v1beta/openai``)
+        without duplicating ``/v1``.
+        """
+        if self.base_url.endswith("/chat/completions"):
+            return self.base_url
+        if (
+            self.chat_completions_path == DEFAULT_CHAT_COMPLETIONS_PATH
+            and (self.base_url.endswith("/v1") or self.base_url.endswith("/openai"))
+        ):
+            return f"{self.base_url}/chat/completions"
+        return f"{self.base_url}{self.chat_completions_path}"
+
+    def _models_url(self) -> str:
+        """Resolve the models health-check URL."""
+        if self.base_url.endswith("/v1") or self.base_url.endswith("/openai"):
+            return f"{self.base_url}/models"
+        return f"{self.base_url}/v1/models"
 
     def _http(self) -> httpx.Client:
         if self.client is None:
@@ -487,7 +519,9 @@ class LlamaCppClient:
         """
         try:
             resp = self._http().get(
-                f"{self.base_url}/v1/models", timeout=timeout_s
+                self._models_url(),
+                headers=self._headers(),
+                timeout=timeout_s,
             )
             return 200 <= resp.status_code < 300
         except httpx.HTTPError:
@@ -511,7 +545,7 @@ class LlamaCppClient:
         LLMRefusedError:
             4xx response (model refused the prompt).
         """
-        url = f"{self.base_url}{self.chat_completions_path}"
+        url = self._chat_url()
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [m.to_openai() for m in messages],
@@ -527,7 +561,9 @@ class LlamaCppClient:
         text_parts: list[str] = []
 
         try:
-            with self._http().stream("POST", url, json=payload) as response:
+            with self._http().stream(
+                "POST", url, json=payload, headers=self._headers()
+            ) as response:
                 if response.status_code >= 500:
                     raise LLMUnavailableError(
                         f"llama-server returned {response.status_code}: "
@@ -624,7 +660,7 @@ class LlamaCppClient:
             4xx response — the model rejected the prompt. Raised
             before any token is yielded.
         """
-        url = f"{self.base_url}{self.chat_completions_path}"
+        url = self._chat_url()
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [m.to_openai() for m in messages],
@@ -645,7 +681,9 @@ class LlamaCppClient:
         # ``self.stats`` mid-stream — wait for the generator to
         # finish.
         try:
-            with self._http().stream("POST", url, json=payload) as response:
+            with self._http().stream(
+                "POST", url, json=payload, headers=self._headers()
+            ) as response:
                 if response.status_code >= 500:
                     raise LLMUnavailableError(
                         f"llama-server returned {response.status_code}: "

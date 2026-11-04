@@ -134,16 +134,28 @@ DEFAULT_SYSTEM_PROMPT = (
     "citation slots."
 )
 
-#: Bengali system prompt for AgriRAG domain mode — strictly grounds
-#: responses in BRRI/BARI official agricultural research and guidance.
+#: Standard disclaimer prefix for Layer 2 Safe Advisory Fallback Mode.
+BENGALI_LAYER2_FALLBACK_PREFIX = (
+    "প্রদত্ত সরকারি কৃষি নির্দেশিকায় এই সুনির্দিষ্ট বিষয়ে সরাসরি উল্লেখ পাওয়া যায়নি, "
+    "তবে সাধারণ ও নিরাপদ প্রাথমিক কৃষি পরিচর্যা হিসেবে করণীয়:"
+)
+
+#: Bengali system prompt for AgriRAG domain mode — implements the
+#: Two-Layer Hybrid Fallback architecture (Layer 1: 100% Grounded
+#: Official BRRI/BARI/DAE Guidance; Layer 2: Safe Non-Chemical
+#: Primary Care Advisory + SAAO / 16123 Referral).
 BENGALI_AGRIRAG_SYSTEM_PROMPT = (
-    'তুমি "AgriRAG" — বাংলাদেশ কৃষি গবেষণা ইনস্টিটিউট (BARI) ও বাংলাদেশ ধান গবেষণা ইনস্টিটিউট (BRRI)-এর অনুমোদিত নির্দেশিকা অনুযায়ী পরিচালিত একটি বিশ্বস্ত অফলাইন কৃষি এআই সহকারী।\n\n'
+    'তুমি "AgriRAG" — বাংলাদেশ ধান গবেষণা ইনস্টিটিউট (BRRI), বাংলাদেশ কৃষি গবেষণা ইনস্টিটিউট (BARI) ও কৃষি সম্প্রসারণ অধিদপ্তর (DAE)-এর অনুমোদিত নির্দেশিকা অনুযায়ী পরিচালিত একটি বিশ্বস্ত দ্বি-স্তরবিশিষ্ট (Two-Layer Hybrid) কৃষি এআই সহকারী।\n\n'
     "নির্দেশনাবলী:\n"
-    '১. নিচে দেওয়া "গৃহীত সরকারি কৃষি তথ্য" (Retrieved Context) ছাড়া নিজের থেকে কোনো মনগড়া বা অনুমানের ওপর ভিত্তি করে কীটনাশকের নাম বা সারের মাত্রা বলবে না।\n'
-    "২. উত্তর সর্বদা সহজ, স্পষ্ট ও সাবলীল বাংলায় দেবে যাতে একজন প্রান্তিক কৃষক সহজেই বুঝতে পারেন।\n"
-    "৩. উত্তরের শেষে অবশ্যই তথ্যের মূল উৎস (যেমন: [উৎস: BRRI আধুনিক ধানের চাষ নির্দেশিকা, পৃষ্ঠা নং]) উল্লেখ করবে।\n"
-    "৪. যদি তথ্যে সমাধান না থাকে, তবে বানোয়াট উত্তর না দিয়ে কৃষককে নিকটস্থ উপজেলা কৃষি অফিসে বা উপ-সহকারী কৃষি কর্মকর্তার (SAAO) সাথে যোগাযোগের পরামর্শ দেবে।\n"
-    "৫. If the context blocks do not contain the answer, reply: I don't have enough information in the provided documents (অথবা বাংলায়: প্রদত্ত নথিতে এ সম্পর্কিত পর্যাপ্ত তথ্য পাওয়া যায়নি)।"
+    "【স্তর ১ — প্রামাণিক সরকারি নির্দেশিকা মোড (Grounded Official Mode)】\n"
+    "১. নিচে যদি নম্বরযুক্ত প্রাসঙ্গিক সরকারি কৃষি তথ্য ([1], [2] ইত্যাদি) দেওয়া থাকে এবং তাতে প্রশ্নের ফসল বা সমস্যার সমাধান থাকে, তবে শতভাগ সেই প্রদত্ত তথ্যের ওপর ভিত্তি করে সহজ, স্পষ্ট ও সাবলীল বাংলায় উত্তর দেবে।\n"
+    "২. প্রদত্ত তথ্য থেকে অনুমোদিত জাত, সারের মাত্রা বা বালাইনাশকের সঠিক নাম ও প্রয়োগ মাত্রা (যেমন: মিলি/লিটার, গ্রাম/লিটার বা কেজি/বিঘা) এবং অপেক্ষমাণ সময় (PHI) সুনির্দিষ্টভাবে উল্লেখ করবে। নিজের থেকে কোনো মনগড়া রাসায়নিক ওষুধের নাম বা মাত্রা যোগ করবে না।\n"
+    "৩. উত্তরের শেষে অবশ্যই তথ্যের মূল উৎস উল্লেখ করবে (যেমন: [উৎস: ডকুমেন্টের নাম, পৃষ্ঠা নং])।\n\n"
+    "【স্তর ২ — নিরাপদ প্রাথমিক পরামর্শ ও রেফারেল মোড (Safe Advisory Fallback Mode)】\n"
+    "৪. যদি প্রশ্নের আগে কোনো নম্বরযুক্ত তথ্য ([1], [2]) না থাকে, অথবা প্রদত্ত তথ্যে প্রশ্নের সুনির্দিষ্ট ফসল বা বিষয়ের সমাধান না থাকে, তবে কখনোই রূঢ়ভাবে প্রত্যাখ্যান করবে না।\n"
+    f'৫. এই ক্ষেত্রে উত্তরের শুরুতে অবশ্যই স্পষ্টভাবে এই বাক্যটি লিখবে:\n"{BENGALI_LAYER2_FALLBACK_PREFIX}"\n'
+    "৬. কঠোর নিরাপত্তা নিয়ম (Safety Guardrail): স্তর ২-এ কখনোই অনুমান করে কোনো রাসায়নিক কীটনাশক, ছত্রাকনাশক বা আগাছানাশকের বাণিজ্যিক বা রাসায়নিক নাম ও মাত্রা (ডোজ) বলবে না! শুধুমাত্র নিরাপদ, জৈব ও প্রাথমিক পরিচর্যা (যেমন: আক্রান্ত অংশ অপসারণ, ক্ষেত পরিষ্কার ও আগাছামুক্ত রাখা, সুষম সেচ ও পানি নিষ্কাশন, জৈব বালাই ব্যবস্থাপনা যেমন ফেরোমন/হলুদ ফাঁদ বা নিম তেল ব্যবহার) সংক্ষেপে পরামর্শ দেবে।\n"
+    '৭. স্তর ২-এর উত্তরের শেষে অবশ্যই কৃষককে নিকটস্থ "উপজেলা কৃষি অফিস / উপ-সহকারী কৃষি কর্মকর্তা (SAAO)" অথবা সরকারি টোল-ফ্রি "কৃষি কল সেন্টার ১৬১২৩ (16123)"-এ যোগাযোগ করার পরামর্শ দেবে।'
 )
 
 #: The user-message template. ``{question}`` is replaced with the
@@ -452,11 +464,25 @@ class PromptBuilder:
     # ----- private helpers ----------------------------------------------
 
     def _empty_prompt(self, query: str) -> Prompt:
-        """Build the "no chunks fit" prompt (model is told to refuse)."""
-        user_message = USER_MESSAGE_TEMPLATE.format(question=query)
-        prompt_tokens = self.count_tokens(self.system_prompt) + self.count_tokens(
-            user_message
-        )
+        """Build the "no chunks fit" prompt (refusal or Layer 2 fallback)."""
+        base_question = USER_MESSAGE_TEMPLATE.format(question=query)
+        sys_tokens = self.count_tokens(self.system_prompt)
+        if "স্তর ২" in self.system_prompt:
+            layer2_message = (
+                "[গৃহীত সরকারি কৃষি তথ্য: কোনো প্রাসঙ্গিক ডকুমেন্ট পাওয়া যায়নি — "
+                "অনুগ্রহ করে নির্দেশনাবলীর 'স্তর ২ (নিরাপদ প্রাথমিক পরামর্শ ও রেফারেল মোড)' অনুসরণ করে উত্তর দিন।]\n\n"
+                f"{base_question}"
+            )
+            layer2_tokens = self.count_tokens(layer2_message)
+            if sys_tokens + layer2_tokens <= self._prompt_budget:
+                user_message = layer2_message
+                prompt_tokens = sys_tokens + layer2_tokens
+            else:
+                user_message = base_question
+                prompt_tokens = sys_tokens + self.count_tokens(base_question)
+        else:
+            user_message = base_question
+            prompt_tokens = sys_tokens + self.count_tokens(user_message)
         return Prompt(
             messages=[
                 ChatMessage(role="system", content=self.system_prompt),
@@ -535,6 +561,7 @@ def default_prompt_builder() -> PromptBuilder:
 
 __all__ = [
     "BENGALI_AGRIRAG_SYSTEM_PROMPT",
+    "BENGALI_LAYER2_FALLBACK_PREFIX",
     "DEFAULT_MAX_PROMPT_TOKENS",
     "DEFAULT_RESERVED_FOR_ANSWER_TOKENS",
     "DEFAULT_SYSTEM_PROMPT",

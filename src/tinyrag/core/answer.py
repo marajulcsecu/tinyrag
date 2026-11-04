@@ -53,6 +53,7 @@ Location: ``src/tinyrag/core/answer.py``
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -262,16 +263,23 @@ class Answer:
         The prompt builder's :data:`DEFAULT_SYSTEM_PROMPT` tells
         the model to reply exactly with ``"I don't have enough
         information in the provided documents."`` when the
-        context is empty. The API layer uses this flag to set
-        the ``confidence: "low"`` field in the response; the
-        eval set (Phase 5) uses it to mark an answer as
-        ungrounded.
+        context is empty. In Bengali mode, also detects the legacy
+        Bengali refusal prefix.
         """
-        # Compare case-folded, stripped — the small models
-        # occasionally add whitespace or change case.
-        return self.text.strip().lower().startswith(
-            "i don't have enough information"
+        norm = unicodedata.normalize("NFC", self.text.strip().lower())
+        return norm.startswith("i don't have enough information") or norm.startswith(
+            unicodedata.normalize("NFC", "প্রদত্ত নথিতে এ সম্পর্কিত পর্যাপ্ত তথ্য")
         )
+
+    @property
+    def is_fallback_advisory(self) -> bool:
+        """``True`` iff the answer used the Layer 2 Safe Advisory Fallback Mode."""
+        norm = unicodedata.normalize("NFC", self.text.strip())
+        prefix = unicodedata.normalize(
+            "NFC",
+            "প্রদত্ত সরকারি কৃষি নির্দেশিকায় এই সুনির্দিষ্ট বিষয়ে সরাসরি উল্লেখ পাওয়া যায়নি",
+        )
+        return prefix in norm
 
 
 # ----------------------------------------------------------------------------

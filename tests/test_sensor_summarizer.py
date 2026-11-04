@@ -731,3 +731,24 @@ class TestErrorHierarchy:
             SensorSummarizer().summarize(
                 pd.DataFrame({"timestamp": pd.to_datetime([datetime(2026, 6, 24)])})
             )
+
+
+class TestBengaliAgriSensorSummarization:
+    """Agri-IoT field sensors include bilingual English + Bengali weather/soil summaries."""
+
+    def test_rice_and_potato_and_soil_sensors_include_bengali_context(self) -> None:
+        df = pd.concat(
+            [
+                _numeric_df(sensor_id="rice_field_temp", sensor_type="temperature", unit="C", base_value=28.0),
+                _numeric_df(sensor_id="potato_field_hum", sensor_type="humidity", unit="%", base_value=86.0),
+                _numeric_df(sensor_id="soil_moisture_hum", sensor_type="humidity", unit="%", base_value=64.0),
+            ],
+            ignore_index=True,
+        )
+        chunks = SensorSummarizer().summarize(df)
+        assert len(chunks) == 3
+        joined = " ".join(c.text for c in chunks)
+        assert "ধানের জমির" in joined
+        assert "নাবি ধসা" in joined
+        assert "মাটির রস" in joined
+

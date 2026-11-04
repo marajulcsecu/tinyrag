@@ -1,0 +1,20 @@
+{
+  "name": "AgriRAG — বাংলার কৃষি এআই সহায়ক (TinyRAG)",
+  "short_name": "AgriRAG",
+  "description": "বাংলাদেশের কৃষকদের জন্য ভয়েস-টু-ভয়েস ও অফলাইন/হাইব্রিড কৃষি পরামর্শ এআই (BARI/BRRI/DAE ভিত্তিক)",
+  "lang": "bn-BD",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f1419",
+  "theme_color": "#1a4d2e",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

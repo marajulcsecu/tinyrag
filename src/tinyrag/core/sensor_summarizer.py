@@ -450,12 +450,79 @@ class SensorSummarizer:
         val_str_max = self._format_value_with_unit(max_val, unit)
         val_str_min = self._format_value_with_unit(min_val, unit)
 
-        return (
+        base_summary = (
             f"On {date_str}, the {room} {sensor_type} averaged "
             f"{val_str_mean}, peaking at {val_str_max} "
             f"at {peak_time_str}, and reaching a minimum of "
             f"{val_str_min} at {trough_time_str}."
         )
+        raw_sensor_id = str(group["sensor_id"].iloc[0])
+        bn_suffix = self._render_bengali_agri_summary(
+            sensor_id=raw_sensor_id,
+            date_str=date_str,
+            mean_val=mean_val,
+            max_val=max_val,
+            min_val=min_val,
+            peak_time_str=peak_time_str,
+            trough_time_str=trough_time_str,
+        )
+        if bn_suffix:
+            return f"{base_summary} {bn_suffix}"
+        return base_summary
+
+    @staticmethod
+    def _render_bengali_agri_summary(
+        *,
+        sensor_id: str,
+        date_str: str,
+        mean_val: float,
+        max_val: float,
+        min_val: float,
+        peak_time_str: str,
+        trough_time_str: str,
+    ) -> str:
+        """Return a Bengali Agri-IoT field weather/soil summary for agricultural sensor IDs."""
+        if sensor_id == "rice_field_temp":
+            return (
+                f"[কৃষি আবহাওয়া ও মাঠ সেন্সর রিপোর্ট (তারিখ: {date_str}, আজকে ও গতকালের ধানের জমির তাপমাত্রা): "
+                f"ধানের জমির (Rice Field) গড় তাপমাত্রা {mean_val:.1f}°C (সর্বোচ্চ {max_val:.1f}°C সময় {peak_time_str}, "
+                f"সর্বনিম্ন {min_val:.1f}°C সময় {trough_time_str})। তাপমাত্রা ২৫-৩২°C ও আর্দ্রতা বেশি থাকলে ধানের ব্লাস্ট (Blast) "
+                "এবং বাদামী গাছফড়িং (কারেন্ট পোকা / BPH)-এর ঝুঁকি বাড়ে; রৌদ্রোজ্জ্বল আবহাওয়ায় সকালে বা বিকেলে স্প্রে করা নিরাপদ।]"
+            )
+        if sensor_id == "rice_field_hum":
+            return (
+                f"[কৃষি আবহাওয়া ও মাঠ সেন্সর রিপোর্ট (তারিখ: {date_str}, আজকে ও গতকালের ধানের জমির আর্দ্রতা): "
+                f"ধানের জমির বাতাসের আপেক্ষিক আর্দ্রতা (Relative Humidity) গড়ে {mean_val:.1f}% (সর্বোচ্চ {max_val:.1f}% সময় {peak_time_str}, "
+                f"সর্বনিম্ন {min_val:.1f}% সময় {trough_time_str})। আর্দ্রতা ৮৫%-এর বেশি ও মেঘলা আবহাওয়ায় ধানের ব্লাস্ট রোগ ও কারেন্ট পোকার "
+                "(বাদামী গাছফড়িং) ঝুঁকি বেশি থাকে — জমির পানি নিষ্কাশন ও অনুমোদিত ট্রাইসাইক্লাজল বা পাইমেট্রোজিন প্রয়োগের পরামর্শ দেওয়া হয়।]"
+            )
+        if sensor_id == "potato_field_temp":
+            return (
+                f"[কৃষি আবহাওয়া ও মাঠ সেন্সর রিপোর্ট (তারিখ: {date_str}, আজকের আলু ও সবজি ক্ষেতের তাপমাত্রা): "
+                f"আলু ও সবজি ক্ষেতের গড় তাপমাত্রা {mean_val:.1f}°C (সর্বোচ্চ {max_val:.1f}°C সময় {peak_time_str}, "
+                f"সর্বনিম্ন {min_val:.1f}°C সময় {trough_time_str})। রাতের তাপমাত্রা ১২-১৮°C ও কুয়াশা থাকলে আলুর নাবি ধসা বা মড়ক (Late Blight) রোগের ঝুঁকি থাকে।]"
+            )
+        if sensor_id == "potato_field_hum":
+            return (
+                f"[কৃষি আবহাওয়া ও মাঠ সেন্সর রিপোর্ট (তারিখ: {date_str}, আজকের আবহাওয়া ও আর্দ্রতা): "
+                f"আলু ও সবজি ক্ষেতের আপেক্ষিক আর্দ্রতা ও কুয়াশা গড়ে {mean_val:.1f}% (সর্বোচ্চ {max_val:.1f}% সময় {peak_time_str}, "
+                f"সর্বনিম্ন {min_val:.1f}% সময় {trough_time_str})। ঘন কুয়াশা ও উচ্চ আর্দ্রতা (>৮৫%) এবং ঠান্ডা আবহাওয়ায় আলুর নাবি ধসা বা মড়ক "
+                "(Late Blight) রোগের তীব্র ঝুঁকি রয়েছে — প্রতিরোধমূলক হিসেবে ম্যানকোজেব (২ গ্রাম/লিটার) অথবা মেটালাক্সিল+ম্যানকোজেব (২ গ্রাম/লিটার) স্প্রে করার উপযুক্ত সময়।]"
+            )
+        if sensor_id == "soil_moisture_hum":
+            return (
+                f"[মাটির রস ও সেচ সেন্সর রিপোর্ট (তারিখ: {date_str}, আজকে জমির মাটির রস ও মাটির আর্দ্রতা): "
+                f"জমির মাটির আর্দ্রতা বা মাটির রস (Soil Moisture) গড়ে {mean_val:.1f}% (সর্বোচ্চ {max_val:.1f}% সময় {peak_time_str}, "
+                f"সর্বনিম্ন {min_val:.1f}% সময় {trough_time_str})। মাটির রস ৪০%-এর নিচে নামলে সেচ প্রয়োজন; আর মাটির রস ৬০-৭৫% থাকলে মাটিতে পর্যাপ্ত রস আছে — "
+                "এখন অতিরিক্ত সেচের প্রয়োজন নেই এবং আবহাওয়া পরিষ্কার থাকলে সার বা বালাইনাশক স্প্রে করা যাবে।]"
+            )
+        if sensor_id == "irrigation_pump_energy":
+            return (
+                f"[সেচ পাম্প ও কৃষি বিদ্যুৎ সেন্সর রিপোর্ট (তারিখ: {date_str}, আজকের সেচ পাম্প স্ট্যাটাস): "
+                f"সেচ পাম্পের গড় বিদ্যুৎ ব্যবহার {mean_val:.1f} kWh (সর্বোচ্চ {max_val:.1f} kWh সময় {peak_time_str})। "
+                "ধানের জমিতে AWD (পর্যায়ক্রমে ভেজানো ও শুকানো) পদ্ধতিতে সেচ দিলে ২৫-৩০% পানি ও বিদ্যুৎ সাশ্রয় হয়।]"
+            )
+        return ""
 
     def _summarize_motion(self, group: pd.DataFrame, date_value: object) -> str:
         """Render a motion event-log summary for one ``(date, sensor)`` group.

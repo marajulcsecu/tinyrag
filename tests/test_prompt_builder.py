@@ -711,3 +711,30 @@ class TestDiagnostics:
             1 for n in range(1, 10) if f"[{n}]" in p.user_message
         )
         assert count == p.chunks_used
+
+
+class TestBengaliTwoLayerFallbackPrompt:
+    """AgriRAG Two-Layer Hybrid Fallback system prompt and empty-context signal."""
+
+    def test_system_prompt_has_both_layers_and_guardrails(self) -> None:
+        from tinyrag.core.prompt_builder import (
+            BENGALI_AGRIRAG_SYSTEM_PROMPT,
+            BENGALI_LAYER2_FALLBACK_PREFIX,
+        )
+
+        assert "স্তর ১" in BENGALI_AGRIRAG_SYSTEM_PROMPT
+        assert "স্তর ২" in BENGALI_AGRIRAG_SYSTEM_PROMPT
+        assert BENGALI_LAYER2_FALLBACK_PREFIX in BENGALI_AGRIRAG_SYSTEM_PROMPT
+        assert "১৬১২৩" in BENGALI_AGRIRAG_SYSTEM_PROMPT
+        assert "SAAO" in BENGALI_AGRIRAG_SYSTEM_PROMPT
+        assert "ডোজ" in BENGALI_AGRIRAG_SYSTEM_PROMPT
+
+    def test_empty_chunks_with_bengali_prompt_signals_layer2(self) -> None:
+        from tinyrag.core.prompt_builder import BENGALI_AGRIRAG_SYSTEM_PROMPT
+
+        b = PromptBuilder(system_prompt=BENGALI_AGRIRAG_SYSTEM_PROMPT)
+        p = b.build("ড্রাগন ফলের ছত্রাক রোগে কী করব?", [])
+        assert p.chunks_used == 0
+        assert "স্তর ২" in p.user_message
+        assert "Question: ড্রাগন ফলের ছত্রাক রোগে কী করব?" in p.user_message
+
