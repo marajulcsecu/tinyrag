@@ -530,6 +530,15 @@
      */
     function appendTokenToBubble(bubble, delta) {
         bubble.textContent += delta;
+        if (
+            delta &&
+            (delta.includes("।") ||
+                delta.includes("\n") ||
+                delta.includes("?") ||
+                delta.includes("!"))
+        ) {
+            prefetchStreamingTts(bubble.textContent);
+        }
         scrollToBottom();
     }
 
@@ -736,11 +745,115 @@
 
     let activeAudioPlayer = null;
     let activeAudioUrl = null;
+    let currentTtsSessionId = 0;
+    const ttsAudioCache = new Map();
+    const TTS_CACHE_LIMIT = 120;
 
     /**
-     * Stop any active neural MP3 audio or window.speechSynthesis playback immediately.
+     * Split cleaned Bengali text into natural sentence chunks so the first
+     * sentence can be synthesized and played in <500ms (or 0ms if prefetched
+     * during LLM token streaming) while remaining chunks load in parallel.
+     */
+    function splitIntoSpeechChunks(rawText) {
+        const clean = cleanTextForSpeech(rawText);
+        if (!clean) return [];
+
+        const rawSentences = clean
+            .split(/(?<=[।?!])\s+/g)
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+        if (rawSentences.length <= 1) {
+            return [clean];
+        }
+
+        const chunks = [];
+        // Keep the very first sentence standalone so Chunk 0 is as fast as possible
+        chunks.push(rawSentences[0]);
+
+        let current = "";
+        for (let i = 1; i < rawSentences.length; ++i) {
+            const sent = rawSentences[i];
+            if (!current) {
+                current = sent;
+            } else if (current.length + 1 + sent.length <= 180) {
+                current = `${current} ${sent}`;
+            } else {
+                chunks.push(current);
+                current = sent;
+            }
+        }
+        if (current) {
+            chunks.push(current);
+        }
+        return chunks;
+    }
+
+    /**
+     * Fetch (or return cached/in-flight Promise for) a single sentence chunk's MP3 Blob.
+     */
+    function fetchTtsAudioBlob(chunkText) {
+        const trimmed = (chunkText || "").trim();
+        if (!trimmed) {
+            return Promise.reject(new Error("Empty TTS chunk"));
+        }
+        if (ttsAudioCache.has(trimmed)) {
+            return ttsAudioCache.get(trimmed);
+        }
+        const promise = fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                text: trimmed,
+                voice: "bn-BD-NabanitaNeural",
+            }),
+        }).then((resp) => {
+            if (!resp.ok) {
+                throw new Error(`TTS HTTP ${resp.status}`);
+            }
+            return resp.blob();
+        }).catch((err) => {
+            ttsAudioCache.delete(trimmed);
+            throw err;
+        });
+
+        ttsAudioCache.set(trimmed, promise);
+        if (ttsAudioCache.size > TTS_CACHE_LIMIT) {
+            const oldestKey = ttsAudioCache.keys().next().value;
+            ttsAudioCache.delete(oldestKey);
+        }
+        return promise;
+    }
+
+    /**
+     * Pre-synthesize completed sentences in the background while the LLM is still
+     * streaming tokens so audio is already in RAM when generation finishes.
+     */
+    function prefetchStreamingTts(streamedText) {
+        if (ttsToggleEl && !ttsToggleEl.checked) {
+            return;
+        }
+        if (!streamedText) return;
+        const lastDari = Math.max(
+            streamedText.lastIndexOf("।"),
+            streamedText.lastIndexOf("?"),
+            streamedText.lastIndexOf("!")
+        );
+        if (lastDari <= 5) return;
+        const completedPortion = streamedText.slice(0, lastDari + 1);
+        const chunks = splitIntoSpeechChunks(completedPortion);
+        for (const chunk of chunks) {
+            fetchTtsAudioBlob(chunk).catch(() => {
+                /* ignore prefetch errors */
+            });
+        }
+    }
+
+    /**
+     * Stop any active neural MP3 audio queue or window.speechSynthesis playback immediately.
      */
     function stopSpeechOutput() {
+        currentTtsSessionId += 1;
         if (activeAudioPlayer) {
             try {
                 activeAudioPlayer.pause();
@@ -791,43 +904,71 @@
     }
 
     /**
-     * Speak Bengali text aloud using backend Neural Bangladeshi Bengali TTS (/api/tts)
-     * so PC browsers (Linux/Windows/Mac) and Mobile browsers both play clear Bengali speech,
-     * falling back to window.speechSynthesis only if offline.
+     * Play a single MP3 Blob and resolve when playback finishes (or is stopped).
+     */
+    function playAudioBlob(blob, sessionId) {
+        return new Promise((resolve, reject) => {
+            if (sessionId !== currentTtsSessionId) {
+                resolve();
+                return;
+            }
+            if (activeAudioUrl) {
+                try {
+                    URL.revokeObjectURL(activeAudioUrl);
+                } catch (_) {
+                    /* ignore */
+                }
+            }
+            activeAudioUrl = URL.createObjectURL(blob);
+            const player = new Audio(activeAudioUrl);
+            activeAudioPlayer = player;
+            player.onended = () => {
+                resolve();
+            };
+            player.onerror = (err) => {
+                reject(err);
+            };
+            player.play().catch(reject);
+        });
+    }
+
+    /**
+     * Speak Bengali text aloud using sentence-pipelined backend TTS (/api/tts)
+     * with real-time streaming prefetch so playback starts immediately when
+     * the response finishes (or in <500ms on manual click).
      */
     async function speakText(rawText, forceManual) {
         if (!forceManual && ttsToggleEl && !ttsToggleEl.checked) {
             return;
         }
         stopSpeechOutput();
+        const sessionId = currentTtsSessionId;
 
-        const clean = cleanTextForSpeech(rawText);
-        if (!clean) return;
+        const chunks = splitIntoSpeechChunks(rawText);
+        if (chunks.length === 0) return;
+
+        // Kick off all sentence chunk fetches concurrently (many are already
+        // resolved in ttsAudioCache from streaming prefetch!)
+        const blobPromises = chunks.map((chunk) => fetchTtsAudioBlob(chunk));
 
         try {
-            const resp = await fetch("/api/tts", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    text: clean,
-                    voice: "bn-BD-NabanitaNeural",
-                }),
-            });
-            if (!resp.ok) {
-                throw new Error(`TTS HTTP ${resp.status}`);
+            for (let i = 0; i < blobPromises.length; ++i) {
+                const blob = await blobPromises[i];
+                if (sessionId !== currentTtsSessionId) {
+                    return;
+                }
+                await playAudioBlob(blob, sessionId);
+                if (sessionId !== currentTtsSessionId) {
+                    return;
+                }
             }
-            const blob = await resp.blob();
-            stopSpeechOutput();
-            activeAudioUrl = URL.createObjectURL(blob);
-            activeAudioPlayer = new Audio(activeAudioUrl);
-            activeAudioPlayer.onended = () => {
-                stopSpeechOutput();
-            };
-            await activeAudioPlayer.play();
         } catch (err) {
+            if (sessionId !== currentTtsSessionId) {
+                return;
+            }
             // eslint-disable-next-line no-console
             console.warn("[AgriRAG] Backend neural TTS fallback to WebSpeech:", err);
-            speakWithBrowserSynthesis(clean);
+            speakWithBrowserSynthesis(cleanTextForSpeech(rawText));
         }
     }
 

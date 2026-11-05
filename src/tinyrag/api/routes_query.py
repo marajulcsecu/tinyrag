@@ -54,6 +54,7 @@ Location: ``src/tinyrag/api/routes_query.py``
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import io
@@ -564,7 +565,7 @@ def build_query_router() -> APIRouter:
 # ----------------------------------------------------------------------------
 
 _TTS_CACHE: OrderedDict[str, bytes] = OrderedDict()
-_TTS_CACHE_MAX = 64
+_TTS_CACHE_MAX = 256
 
 
 def _clean_text_for_bengali_tts(raw_text: str) -> str:
@@ -576,14 +577,26 @@ def _clean_text_for_bengali_tts(raw_text: str) -> str:
         # Remove English thinking bullets if present
         parts = re.split(r"(?=[\u0980-\u09FF]{3,})", text, maxsplit=1)
         text = parts[-1] if parts else text
-    text = re.sub(r"\[\d+\]", "", text)
+    text = re.sub(r"\[উৎস:[^\]]*\]", "", text)
+    text = re.sub(r"উৎস:\s*[^।\n]+", "", text)
+    text = re.sub(r"\[\s*[\d০-৯]+(?:\s*,\s*[\d০-৯]+)*\s*\]", "", text)
     text = re.sub(r"[*_`#~>-]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:1600]
 
 
+def _synthesize_gtts_sync(clean_text: str) -> bytes:
+    """Synchronous gTTS helper executed inside asyncio.to_thread (~450-600ms per sentence)."""
+    from gtts import gTTS
+
+    buf = io.BytesIO()
+    tts_obj = gTTS(text=clean_text, lang="bn", slow=False)
+    tts_obj.write_to_fp(buf)
+    return buf.getvalue()
+
+
 async def _synthesize_bengali_tts(text: str, voice: str = "bn-BD-NabanitaNeural") -> Response:
-    """Synthesize MP3 audio using edge-tts (bn-BD) with gTTS fallback and LRU caching."""
+    """Synthesize MP3 audio with sub-second gTTS (in thread pool) + edge-tts fallback and LRU caching."""
     clean_text = _clean_text_for_bengali_tts(text)
     if not clean_text:
         return JSONResponse(
@@ -601,28 +614,27 @@ async def _synthesize_bengali_tts(text: str, voice: str = "bn-BD-NabanitaNeural"
         )
 
     audio_bytes = bytearray()
-    # 1. Primary: Microsoft Edge Neural Bangladeshi Bengali TTS (bn-BD-NabanitaNeural)
+
+    # 1. Primary fast engine (~500ms latency, reliable on both short & long Bengali text):
+    # Run gTTS in a background worker thread so FastAPI's event loop stays 100% responsive.
     try:
-        import edge_tts
-
-        comm = edge_tts.Communicate(clean_text, voice)
-        async for chunk in comm.stream():
-            if chunk.get("type") == "audio" and chunk.get("data"):
-                audio_bytes.extend(chunk["data"])
+        gtts_data = await asyncio.to_thread(_synthesize_gtts_sync, clean_text)
+        if gtts_data:
+            audio_bytes.extend(gtts_data)
     except Exception as exc:
-        logger.warning("edge-tts failed (%s), falling back to gTTS", exc)
+        _log.warning("gTTS primary failed, falling back to edge-tts", error=str(exc))
 
-    # 2. Fallback: Google Translate Bengali TTS (gTTS)
+    # 2. Fallback: Microsoft Edge Neural Bangladeshi Bengali TTS (bn-BD-NabanitaNeural)
     if not audio_bytes:
         try:
-            from gtts import gTTS
+            import edge_tts
 
-            buf = io.BytesIO()
-            tts_obj = gTTS(text=clean_text, lang="bn", slow=False)
-            tts_obj.write_to_fp(buf)
-            audio_bytes.extend(buf.getvalue())
+            comm = edge_tts.Communicate(clean_text, voice)
+            async for chunk in comm.stream():
+                if chunk.get("type") == "audio" and chunk.get("data"):
+                    audio_bytes.extend(chunk["data"])
         except Exception as exc:
-            logger.warning("gTTS fallback also failed: %s", exc)
+            _log.warning("edge-tts fallback also failed", error=str(exc))
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={"error": "tts_unavailable", "detail": str(exc)},

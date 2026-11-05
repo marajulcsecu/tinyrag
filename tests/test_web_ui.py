@@ -752,3 +752,11 @@ class TestAgriRAGPhase5UI:
         )
         assert groq._chat_url() == "https://api.groq.com/openai/v1/chat/completions"
 
+    def test_chat_js_has_sentence_prefetch_and_chunked_tts_queue(self) -> None:
+        js = CHAT_JS_PATH.read_text(encoding="utf-8")
+        assert "splitIntoSpeechChunks" in js
+        assert "prefetchStreamingTts" in js
+        assert "fetchTtsAudioBlob" in js
+        assert "ttsAudioCache" in js
+
+
