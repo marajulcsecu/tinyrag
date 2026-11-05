@@ -140,6 +140,16 @@ BENGALI_LAYER2_FALLBACK_PREFIX = (
     "তবে সাধারণ ও নিরাপদ প্রাথমিক কৃষি পরিচর্যা হিসেবে করণীয়:"
 )
 
+#: Pure Layer 1 system prompt used when retrieved chunks match the queried crop/pest
+#: so small 2B models never confuse Layer 2's refusal prefix with Layer 1 answers.
+BENGALI_LAYER1_GROUNDED_SYSTEM_PROMPT = (
+    'তুমি "AgriRAG" — বাংলাদেশ ধান গবেষণা ইনস্টিটিউট (BRRI), বাংলাদেশ কৃষি গবেষণা ইনস্টিটিউট (BARI) ও কৃষি সম্প্রসারণ অধিদপ্তর (DAE)-এর অনুমোদিত নির্দেশিকা অনুযায়ী পরিচালিত একটি প্রামাণিক কৃষি এআই সহকারী।\n\n'
+    "নির্দেশনাবলী (স্তর ১ — প্রামাণিক সরকারি নির্দেশিকা মোড):\n"
+    "১. নিচে নম্বরযুক্ত সরকারি কৃষি তথ্য ([1], [2] ইত্যাদি) দেওয়া আছে। শতভাগ সেই প্রদত্ত তথ্যের ওপর ভিত্তি করে সহজ, স্পষ্ট ও সাবলীল বাংলায় সরাসরি উত্তর দেবে।\n"
+    "২. প্রদত্ত তথ্য থেকে রোগের/পোকার লক্ষণ, প্রাথমিক পরিচর্যা এবং অনুমোদিত জাত, সারের মাত্রা বা বালাইনাশকের সঠিক বাণিজ্যিক/রাসায়নিক নাম ও প্রয়োগ মাত্রা (যেমন: মিলি/লিটার, গ্রাম/লিটার বা কেজি/বিঘা) সুনির্দিষ্টভাবে পয়েন্ট আকারে উল্লেখ করবে।\n"
+    "৩. উত্তরের শেষে অবশ্যই তথ্যের মূল উৎস উল্লেখ করবে (যেমন: [উৎস: ডকুমেন্টের নাম, পৃষ্ঠা নং])।"
+)
+
 #: Bengali system prompt for AgriRAG domain mode — implements the
 #: Two-Layer Hybrid Fallback architecture (Layer 1: 100% Grounded
 #: Official BRRI/BARI/DAE Guidance; Layer 2: Safe Non-Chemical
@@ -442,18 +452,61 @@ class PromptBuilder:
             for n, i in enumerate(selected)
         ]
         context_block = "\n\n".join(context_parts)
-        user_message = f"{context_block}\n\n{USER_MESSAGE_TEMPLATE.format(question=query)}"
-
-        prompt_tokens = fixed_overhead + self.count_tokens(context_block) + (
-            2 if context_block else 0
-        )
+        base_question = USER_MESSAGE_TEMPLATE.format(question=query)
+        active_system_prompt = self.system_prompt
+        if "স্তর ১" in self.system_prompt:
+            combined_context_lower = context_block.lower()
+            query_words = [
+                w.strip("?,!।():;\"'[] ")
+                for w in query.split()
+                if len(w.strip("?,!।():;\"'[] ")) >= 3
+            ]
+            stop_words = {
+                "এখন", "কী", "করব", "করবো", "হচ্ছে", "যাচ্ছে", "হলে", "জন্য",
+                "কীভাবে", "উপায়", "রোগ", "রোগে", "গাছ", "গাছের", "চাষ", "ফলন",
+                "সমস্যা", "প্রতিকার", "দমন", "ওষুধ", "মাত্রা", "স্প্রে", "কোন",
+                "কেন", "কখন", "দিতে", "হবে", "বিস্তারিত", "জানান", "বলুন", "উচিত",
+            }
+            content_words = [w for w in query_words if w not in stop_words]
+            has_topic_overlap = any(
+                (w.lower() in combined_context_lower)
+                or (len(w) >= 4 and w[:4].lower() in combined_context_lower)
+                for w in content_words
+            )
+            if has_topic_overlap or not content_words:
+                active_system_prompt = BENGALI_LAYER1_GROUNDED_SYSTEM_PROMPT
+                user_message = f"{context_block}\n\n{base_question}"
+                prompt_tokens = (
+                    self.count_tokens(active_system_prompt)
+                    + self.count_tokens(user_message)
+                )
+            else:
+                layer_cue = (
+                    "\n\n[নির্দেশনা: উপরের ডকুমেন্টে প্রশ্নের নির্দিষ্ট ফসলটির উল্লেখ নেই। "
+                    "অনুগ্রহ করে 'স্তর ২ (নিরাপদ প্রাথমিক পরামর্শ ও রেফারেল মোড)' অনুসরণ করে উত্তর দিন।]"
+                )
+                candidate_msg = f"{context_block}{layer_cue}\n\n{base_question}"
+                cand_tokens = system_tokens + self.count_tokens(candidate_msg)
+                if cand_tokens <= self._prompt_budget:
+                    user_message = candidate_msg
+                    prompt_tokens = cand_tokens
+                else:
+                    user_message = f"{context_block}\n\n{base_question}"
+                    prompt_tokens = fixed_overhead + self.count_tokens(context_block) + (
+                        2 if context_block else 0
+                    )
+        else:
+            user_message = f"{context_block}\n\n{base_question}"
+            prompt_tokens = fixed_overhead + self.count_tokens(context_block) + (
+                2 if context_block else 0
+            )
 
         return Prompt(
             messages=[
-                ChatMessage(role="system", content=self.system_prompt),
+                ChatMessage(role="system", content=active_system_prompt),
                 ChatMessage(role="user", content=user_message),
             ],
-            system_prompt=self.system_prompt,
+            system_prompt=active_system_prompt,
             user_message=user_message,
             prompt_tokens=prompt_tokens,
             chunks_used=chunks_used,
