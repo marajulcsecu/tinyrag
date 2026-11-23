@@ -79,7 +79,7 @@ import re
 import sqlite3
 import uuid
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -300,13 +300,11 @@ class MetadataStore:
             for stmt in self._schema_sql():
                 conn.execute(stmt)
             # Sync existing chunks into chunks_fts if it was newly created
-            try:
+            with suppress(sqlite3.OperationalError):
                 conn.execute(
                     "INSERT OR IGNORE INTO chunks_fts (id, document_id, text) "
                     "SELECT id, document_id, text FROM chunks"
                 )
-            except sqlite3.OperationalError:
-                pass
             # Record the current schema version. Use INSERT OR IGNORE
             # so re-running init_schema doesn't bump the version
             # every time (a migration bump is a deliberate action).

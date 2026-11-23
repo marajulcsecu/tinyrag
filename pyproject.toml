@@ -156,6 +156,7 @@ ignore = [
     "E501",   # line too long — handled by formatter
     "B008",   # function call in default argument — common in FastAPI
     "SIM108", # use ternary — sometimes clearer as if/else
+    "RUF001", # Bengali Unicode digits and Bijoy legacy markers are intentional
 ]
 
 [tool.ruff.lint.per-file-ignores]
