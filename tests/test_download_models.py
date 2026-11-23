@@ -252,7 +252,13 @@ def test_registry_has_exactly_one_primary() -> None:
 
 def test_registry_ids_are_stable() -> None:
     """The model_id strings are a public API — pin them."""
-    expected_ids = {"phi-3-mini", "tinyllama-1.1b", "llama-3.2-3b", "mistral-7b"}
+    expected_ids = {
+        "gemma-4-E2B-it",
+        "phi-3-mini",
+        "tinyllama-1.1b",
+        "llama-3.2-3b",
+        "mistral-7b",
+    }
     assert set(MODEL_REGISTRY.keys()) == expected_ids
 
 

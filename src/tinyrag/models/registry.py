@@ -189,7 +189,7 @@ MODEL_REGISTRY: Mapping[str, ModelEntry] = {
         notes="Smallest comparison model. Sets the quality floor.",
     ),
     # -----------------------------------------------------------------
-    # PRIMARY — the default LLM for TinyRAG queries (since 2026-07-23)
+    # EVAL MEDIUM — edge fallback LLM (Raspberry Pi 5 / low-RAM mode)
     # -----------------------------------------------------------------
     "llama-3.2-3b": ModelEntry(
         model_id="llama-3.2-3b",
@@ -200,7 +200,7 @@ MODEL_REGISTRY: Mapping[str, ModelEntry] = {
         expected_size_bytes=1_800_000_000,  # ~1.8 GB
         expected_sha256="",
         license="Llama3.2",
-        role="primary",
+        role="eval-medium",
         intended_context=4096,
         notes=(
             "PRIMARY LLM since 2026-07-23 (promoted from middle "
