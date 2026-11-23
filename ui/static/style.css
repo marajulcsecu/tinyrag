@@ -1273,3 +1273,426 @@ main.chat .status-panel.is-collapsed {
     .docs-table .col-size { display: none; }
     .docs-table .col-filename { word-break: break-all; }
 }
+
+
+/* ============================================================================
+ * Full-Screen Mobile-First Voice Agent Overlay (Voice Agent v2)
+ * Inspired by clean dedicated farmer voice assistants:
+ *   - Top AgriRAG emerald header + STT mode badge + close button
+ *   - Center acoustic waveform canvas + editable Bengali review card
+ *   - Bottom dual oversized circular controls: Emerald "বলুন/পাঠান" & Red "STOP/থামান"
+ * ============================================================================ */
+
+body.va-open {
+    overflow: hidden;
+}
+
+.va-hidden {
+    display: none !important;
+}
+
+.va-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, #0b141b 0%, #0e1a22 52%, #0a1016 100%);
+    color: var(--fg);
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+    animation: vaFadeIn 0.2s ease-out;
+}
+
+@keyframes vaFadeIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.va-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 18px;
+    background: linear-gradient(90deg, #0a5c46 0%, #0d6e54 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    flex-shrink: 0;
+}
+
+.va-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.va-brand .brand-logo {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.28);
+    color: #ffffff;
+}
+
+.va-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.2;
+}
+
+.va-engine-badge {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(236, 253, 245, 0.88);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.va-close-btn {
+    background: rgba(0, 0, 0, 0.24);
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    color: #ffffff;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s ease;
+}
+
+.va-close-btn:hover {
+    background: rgba(0, 0, 0, 0.42);
+}
+
+.va-stage {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 18px 20px 10px;
+    width: 100%;
+    max-width: 540px;
+    margin: 0 auto;
+    overflow-y: auto;
+}
+
+.va-status-block {
+    text-align: center;
+    width: 100%;
+}
+
+.va-status-text {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    color: #f8fafc;
+    letter-spacing: -0.2px;
+}
+
+.va-status-sub {
+    margin: 6px 0 0;
+    font-size: 13px;
+    color: #94a3b8;
+    line-height: 1.5;
+}
+
+.va-wave-stage {
+    width: 100%;
+    max-width: 340px;
+    height: 104px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 22px;
+    background: rgba(16, 185, 129, 0.06);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    flex-shrink: 0;
+}
+
+.va-wave-stage.is-listening {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.55);
+    box-shadow: 0 0 28px rgba(16, 185, 129, 0.2);
+}
+
+.va-wave-stage.is-thinking {
+    background: rgba(14, 165, 233, 0.08);
+    border-color: rgba(14, 165, 233, 0.45);
+    box-shadow: 0 0 24px rgba(14, 165, 233, 0.18);
+}
+
+.va-wave-stage.is-speaking {
+    background: rgba(52, 211, 153, 0.1);
+    border-color: rgba(52, 211, 153, 0.55);
+    box-shadow: 0 0 28px rgba(52, 211, 153, 0.22);
+}
+
+#va-waveform {
+    width: 100%;
+    height: 96px;
+    display: block;
+}
+
+.va-transcript-card,
+.va-reply-card {
+    width: 100%;
+    background: rgba(22, 31, 43, 0.92);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 12px 14px;
+    box-shadow: var(--shadow);
+}
+
+.va-transcript-header,
+.va-reply-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.va-transcript-label,
+.va-reply-header span {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--fg-mute);
+}
+
+.va-correction-badge {
+    font-size: 11px;
+    font-weight: 600;
+    color: #6ee7b7;
+    background: rgba(16, 185, 129, 0.16);
+    border: 1px solid rgba(16, 185, 129, 0.38);
+    padding: 2px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.va-transcript-input {
+    width: 100%;
+    resize: none;
+    background: rgba(11, 15, 20, 0.72);
+    color: #f8fafc;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 16px;
+    line-height: 1.55;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.va-transcript-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.18);
+}
+
+.va-countdown-wrap {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.va-countdown-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.va-countdown-bar {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #10b981, #34d399);
+    border-radius: 999px;
+    transition: width 0.08s linear;
+}
+
+.va-countdown-label {
+    font-size: 11.5px;
+    color: #6ee7b7;
+    text-align: center;
+}
+
+.va-transcript-actions {
+    margin-top: 8px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.va-retry-btn,
+.va-view-chat-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.va-retry-btn:hover,
+.va-view-chat-btn:hover {
+    border-color: var(--accent);
+    color: #6ee7b7;
+}
+
+.va-reply-text {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.65;
+    color: #e2e8f0;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+/* Bottom Dual Oversized Circular Controls (Farmer-Friendly Touch Targets) */
+.va-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 44px;
+    padding: 14px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+    flex-shrink: 0;
+}
+
+.va-btn-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.va-circle-btn {
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-family: inherit;
+    transition: transform 0.12s ease, box-shadow 0.2s ease, background 0.18s ease, border-color 0.18s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.va-circle-btn:active:not(:disabled) {
+    transform: scale(0.93);
+}
+
+.va-circle-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.va-circle-primary {
+    background: rgba(16, 185, 129, 0.14);
+    border: 2.5px solid #10b981;
+    color: #6ee7b7;
+    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.22);
+}
+
+.va-circle-primary:hover:not(:disabled) {
+    background: rgba(16, 185, 129, 0.24);
+}
+
+.va-circle-primary.va-btn-recording {
+    background: #10b981;
+    border-color: #34d399;
+    color: #052e16;
+    animation: vaEmeraldPulse 1.3s infinite;
+}
+
+.va-circle-primary.va-btn-confirm {
+    background: #10b981;
+    border-color: #6ee7b7;
+    color: #052e16;
+    box-shadow: 0 8px 26px rgba(16, 185, 129, 0.38);
+}
+
+@keyframes vaEmeraldPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.65); }
+    70%  { box-shadow: 0 0 0 18px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.va-circle-stop {
+    background: #dc2626;
+    border: 2.5px solid #f87171;
+    color: #ffffff;
+    box-shadow: 0 8px 24px rgba(220, 38, 38, 0.36);
+}
+
+.va-circle-stop:hover:not(:disabled) {
+    background: #ef4444;
+}
+
+.va-stop-word {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+}
+
+.va-circle-label {
+    font-size: 16px;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+/* Make composer mic button more noticeable on phones to enter Voice Agent Mode */
+@media (max-width: 768px) {
+    .btn-mic {
+        width: 42px;
+        height: 42px;
+        background: var(--accent-soft);
+        border-color: rgba(16, 185, 129, 0.48);
+        color: #6ee7b7;
+    }
+
+    .va-status-text {
+        font-size: 21px;
+    }
+
+    .va-stage {
+        gap: 12px;
+        padding: 14px 16px 6px;
+    }
+
+    .va-wave-stage {
+        height: 88px;
+    }
+
+    #va-waveform {
+        height: 82px;
+    }
+
+    .va-controls {
+        gap: 36px;
+        padding: 10px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .va-circle-btn {
+        width: 78px;
+        height: 78px;
+    }
+
+    .va-circle-label {
+        font-size: 15px;
+    }
+}

@@ -342,6 +342,15 @@ def create_app(
     else:
         _log.warning("ui_static_dir_missing", path=str(static_dir))
 
+    @app.middleware("http")
+    async def _no_stale_ui_cache(request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+        return response
+
     templates = Jinja2Templates(directory=str(templates_dir)) \
         if templates_dir.is_dir() else None
 

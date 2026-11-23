@@ -85,6 +85,13 @@ python-dateutil==2.9.0.post0    # flexible date parsing in sensor CSVs
 pandas==2.2.3                   # sensor data aggregation (Phase 4/5)
 
 
+# ----------------------------------------------------------------------------
+# 9. Bengali Neural TTS (AgriRAG Voice Output)
+# ----------------------------------------------------------------------------
+edge-tts==7.3.1                 # Bangladeshi Bengali neural voice (bn-BD-NabanitaNeural)
+gTTS==2.5.4                     # lightweight fallback Bengali TTS
+
+
 # ============================================================================
 # Notes for maintainers
 # ----------------------------------------------------------------------------

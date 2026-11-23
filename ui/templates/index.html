@@ -12,7 +12,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="/static/style.css?v=13">
+    <link rel="stylesheet" href="/static/voice_agent.css?v=20">
 </head>
 <body>
     <header class="topbar">
@@ -280,11 +280,97 @@
         </div>
     </div>
 
+    <!-- Full-Screen Voice Agent Overlay (Mobile-First Farmer Voice Mode) -->
+    <div class="va-overlay va-hidden" id="voice-agent-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="va-status-text">
+        <div class="va-topbar">
+            <div class="va-brand">
+                <div class="brand-logo" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"></path>
+                        <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"></path>
+                    </svg>
+                </div>
+                <div>
+                    <div class="va-title">AgriRAG ভয়েস</div>
+                    <div class="va-engine-badge" id="va-engine-badge">বাংলা ভয়েস + কৃষি কারেকশন</div>
+                </div>
+            </div>
+            <button type="button" id="va-close-btn" class="va-close-btn" aria-label="চ্যাটে ফিরে যান">
+                <span>✕ চ্যাটে ফিরুন</span>
+            </button>
+        </div>
+
+        <div class="va-stage">
+            <div class="va-status-block">
+                <h2 class="va-status-text" id="va-status-text">শুনছি... বাংলায় বলুন</h2>
+                <p class="va-status-sub" id="va-status-sub">বাংলায় আপনার ফসলের সমস্যার কথা পরিষ্কার করে বলুন</p>
+            </div>
+
+            <div class="va-wave-stage" id="va-wave-stage" aria-hidden="true">
+                <canvas id="va-waveform" width="320" height="96"></canvas>
+            </div>
+
+            <div class="va-transcript-card" id="va-transcript-card">
+                <div class="va-transcript-header">
+                    <span class="va-transcript-label">আপনার কথা (প্রয়োজনে ট্যাপ করে ঠিক করুন)</span>
+                    <span class="va-correction-badge va-hidden" id="va-correction-badge">✓ কৃষি শব্দ সংশোধিত</span>
+                </div>
+                <textarea
+                    id="va-transcript-input"
+                    class="va-transcript-input"
+                    rows="3"
+                    placeholder="আপনার কথা এখানে দেখাবে..."
+                    aria-label="ভয়েস থেকে রূপান্তরিত বাংলা প্রশ্ন"
+                ></textarea>
+                <div class="va-countdown-wrap va-hidden" id="va-countdown-wrap">
+                    <div class="va-countdown-track">
+                        <div class="va-countdown-bar" id="va-countdown-bar"></div>
+                    </div>
+                    <span class="va-countdown-label" id="va-countdown-label">২.৫ সেকেন্ডে পাঠানো হবে...</span>
+                </div>
+                <div class="va-transcript-actions">
+                    <button type="button" id="va-retry-btn" class="va-retry-btn va-hidden">
+                        ↺ আবার বলুন
+                    </button>
+                </div>
+            </div>
+
+            <div class="va-reply-card va-hidden" id="va-reply-card">
+                <div class="va-reply-header">
+                    <span>AgriRAG পরামর্শ</span>
+                    <button type="button" id="va-view-chat-btn" class="va-view-chat-btn">চ্যাটে দেখুন ↗</button>
+                </div>
+                <p class="va-reply-text" id="va-reply-text">উত্তর তৈরি হচ্ছে...</p>
+            </div>
+        </div>
+
+        <div class="va-controls">
+            <div class="va-btn-group">
+                <button type="button" id="va-primary-btn" class="va-circle-btn va-circle-primary" aria-label="কথা বলুন বা পাঠান">
+                    <svg id="va-primary-icon" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="22"></line>
+                    </svg>
+                </button>
+                <span class="va-circle-label" id="va-primary-label">বলুন</span>
+            </div>
+
+            <div class="va-btn-group">
+                <button type="button" id="va-stop-btn" class="va-circle-btn va-circle-stop" aria-label="থামান বা বাতিল করুন">
+                    <span class="va-stop-word">STOP</span>
+                </button>
+                <span class="va-circle-label" id="va-stop-label">থামান</span>
+            </div>
+        </div>
+    </div>
+
     <footer class="footer">
         <span>AgriRAG (TinyRAG) · অফলাইন/হাইব্রিড ভয়েস-টু-ভয়েস কৃষি এআই (BARI / BRRI / DAE নির্দেশিকা ভিত্তিক) · <code>POST /api/query?stream=true</code> · <a href="/admin">ডকুমেন্ট আপলোড (Admin)</a> · <a href="/docs">API docs</a> · <a href="/api/status">status JSON</a></span>
     </footer>
 
     <script src="/static/chat.js" defer></script>
+    <script src="/static/voice_agent.js?v=21" defer></script>
     <script src="/static/status.js" defer></script>
 </body>
 </html>

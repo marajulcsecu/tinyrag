@@ -486,7 +486,11 @@ class VoiceQueryRequest(BaseModel):
 
     audio_base64: str | None = Field(
         default=None,
-        description="Optional base64-encoded audio bytes (WAV/WebM/Ogg/MP3).",
+        description="Optional base64-encoded audio bytes (WAV/WebM/Ogg/MP3/M4A).",
+    )
+    audio_mime_type: str | None = Field(
+        default=None,
+        description="Optional MIME type of audio_base64 (e.g., audio/webm, audio/mp4).",
     )
     transcript_hint: str | None = Field(
         default=None,

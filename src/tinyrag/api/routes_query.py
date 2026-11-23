@@ -477,10 +477,16 @@ def build_query_router() -> APIRouter:
 
         adapter = VoiceInputAdapter(default_language=body.language)
         try:
-            transcription = adapter.transcribe(
+            transcription = await asyncio.to_thread(
+                adapter.transcribe,
                 audio_bytes,
                 transcript_hint=body.transcript_hint,
                 language=body.language,
+                audio_mime_type=body.audio_mime_type,
+                engine_mode=body.engine_mode,
+                api_key=body.api_key,
+                api_base_url=body.api_base_url,
+                api_model=body.api_model,
             )
         except VoiceInputError as exc:
             return JSONResponse(
@@ -537,9 +543,10 @@ def build_query_router() -> APIRouter:
     async def get_tts(
         text: str = Query(..., min_length=1, max_length=3000),
         voice: str = Query(default="bn-BD-NabanitaNeural"),
+        rate: str = Query(default="+25%"),
     ) -> Response:
         """Synthesize natural Bangladeshi Bengali MP3 audio for PC & Mobile playback."""
-        return await _synthesize_bengali_tts(text=text, voice=voice)
+        return await _synthesize_bengali_tts(text=text, voice=voice, rate=rate)
 
     @router.post("/tts", summary="Synthesize Bangladeshi Bengali (bn-BD) speech audio (POST)")
     async def post_tts(request: Request) -> Response:
@@ -550,12 +557,13 @@ def build_query_router() -> APIRouter:
             payload = {}
         text = str(payload.get("text") or "").strip()
         voice = str(payload.get("voice") or "bn-BD-NabanitaNeural").strip()
+        rate = str(payload.get("rate") or "+25%").strip()
         if not text:
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={"error": "empty_tts_text", "detail": "Text is required for TTS"},
             )
-        return await _synthesize_bengali_tts(text=text, voice=voice)
+        return await _synthesize_bengali_tts(text=text, voice=voice, rate=rate)
 
     return router
 
@@ -579,14 +587,14 @@ def _clean_text_for_bengali_tts(raw_text: str) -> str:
         text = parts[-1] if parts else text
     text = re.sub(r"\[উৎস:[^\]]*\]", "", text)
     text = re.sub(r"উৎস:\s*[^।\n]+", "", text)
-    text = re.sub(r"\[\s*[\d০-৯]+(?:\s*,\s*[\d০-৯]+)*\s*\]", "", text)
+    text = re.sub(r"\[\s*[\d\u09e6-\u09ef]+(?:\s*,\s*[\d\u09e6-\u09ef]+)*\s*\]", "", text)
     text = re.sub(r"[*_`#~>-]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:1600]
 
 
 def _synthesize_gtts_sync(clean_text: str) -> bytes:
-    """Synchronous gTTS helper executed inside asyncio.to_thread (~450-600ms per sentence)."""
+    """Synchronous gTTS fallback executed inside asyncio.to_thread."""
     from gtts import gTTS
 
     buf = io.BytesIO()
@@ -595,8 +603,12 @@ def _synthesize_gtts_sync(clean_text: str) -> bytes:
     return buf.getvalue()
 
 
-async def _synthesize_bengali_tts(text: str, voice: str = "bn-BD-NabanitaNeural") -> Response:
-    """Synthesize MP3 audio with sub-second gTTS (in thread pool) + edge-tts fallback and LRU caching."""
+async def _synthesize_bengali_tts(
+    text: str,
+    voice: str = "bn-BD-NabanitaNeural",
+    rate: str = "+25%",
+) -> Response:
+    """Synthesize realistic Bangladeshi Bengali MP3 audio with edge-tts primary + gTTS fallback."""
     clean_text = _clean_text_for_bengali_tts(text)
     if not clean_text:
         return JSONResponse(
@@ -604,7 +616,10 @@ async def _synthesize_bengali_tts(text: str, voice: str = "bn-BD-NabanitaNeural"
             content={"error": "empty_tts_text", "detail": "No speakable text after cleaning"},
         )
 
-    cache_key = hashlib.sha256(f"{voice}:{clean_text}".encode("utf-8")).hexdigest()
+    if not re.match(r"^[+-]\d{1,2}%$", rate):
+        rate = "+25%"
+
+    cache_key = hashlib.sha256(f"neural:{voice}:{rate}:{clean_text}".encode()).hexdigest()
     if cache_key in _TTS_CACHE:
         _TTS_CACHE.move_to_end(cache_key)
         return Response(
@@ -615,26 +630,47 @@ async def _synthesize_bengali_tts(text: str, voice: str = "bn-BD-NabanitaNeural"
 
     audio_bytes = bytearray()
 
-    # 1. Primary fast engine (~500ms latency, reliable on both short & long Bengali text):
-    # Run gTTS in a background worker thread so FastAPI's event loop stays 100% responsive.
-    try:
-        gtts_data = await asyncio.to_thread(_synthesize_gtts_sync, clean_text)
-        if gtts_data:
-            audio_bytes.extend(gtts_data)
-    except Exception as exc:
-        _log.warning("gTTS primary failed, falling back to edge-tts", error=str(exc))
-
-    # 2. Fallback: Microsoft Edge Neural Bangladeshi Bengali TTS (bn-BD-NabanitaNeural)
-    if not audio_bytes:
+    # 1. Primary Realistic Engine: Microsoft Azure Neural Bangladeshi Bengali TTS
+    # (bn-BD-NabanitaNeural / bn-BD-PradeepNeural) with IPv4 connector to avoid
+    # 4s IPv6 DNS timeouts and rate="+25%" for crisp, natural conversational speed.
+    for attempt in range(2):
         try:
+            import socket
+
+            import aiohttp
             import edge_tts
 
-            comm = edge_tts.Communicate(clean_text, voice)
+            conn = aiohttp.TCPConnector(family=socket.AF_INET)
+            comm = edge_tts.Communicate(
+                clean_text,
+                voice,
+                rate=rate,
+                connector=conn,
+                connect_timeout=6,
+                receive_timeout=15,
+            )
             async for chunk in comm.stream():
                 if chunk.get("type") == "audio" and chunk.get("data"):
                     audio_bytes.extend(chunk["data"])
+            if audio_bytes:
+                break
         except Exception as exc:
-            _log.warning("edge-tts fallback also failed", error=str(exc))
+            _log.warning(
+                "edge-tts primary attempt failed",
+                attempt=attempt + 1,
+                voice=voice,
+                error=str(exc),
+            )
+            audio_bytes.clear()
+
+    # 2. Fallback: Google Translate TTS (gTTS) in background thread pool
+    if not audio_bytes:
+        try:
+            gtts_data = await asyncio.to_thread(_synthesize_gtts_sync, clean_text)
+            if gtts_data:
+                audio_bytes.extend(gtts_data)
+        except Exception as exc:
+            _log.warning("gTTS fallback also failed", error=str(exc))
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={"error": "tts_unavailable", "detail": str(exc)},

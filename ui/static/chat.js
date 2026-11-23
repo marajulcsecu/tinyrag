@@ -72,6 +72,18 @@
     let cloudBaseUrlEl = null;
     let cloudModelEl = null;
 
+    let voiceEventCallbacks = null;
+
+    function notifyVoiceEvent(name, ...args) {
+        if (voiceEventCallbacks && typeof voiceEventCallbacks[name] === "function") {
+            try {
+                voiceEventCallbacks[name](...args);
+            } catch (_) {
+                /* never break main chat flow */
+            }
+        }
+    }
+
     const ENGINE_STORAGE_KEY = "agrirag_engine_cfg";
 
     function getEngineConfig() {
@@ -389,7 +401,9 @@
             // Turn the structured payload into a human status line so
             // the thinking indicator reflects real progress (retrieval
             // → generation) rather than a blank wait.
-            updateThinkingStatus(assistantBubble, formatStatus(payload));
+            const statusText = formatStatus(payload);
+            updateThinkingStatus(assistantBubble, statusText);
+            notifyVoiceEvent("onStatus", statusText);
         } else if (eventName === "token") {
             if (typeof payload.delta === "string") {
                 // First token ends the "thinking" phase — drop the
@@ -400,6 +414,7 @@
                     clearThinkingIndicator(assistantBubble);
                 }
                 appendTokenToBubble(assistantBubble, payload.delta);
+                notifyVoiceEvent("onToken", payload.delta, assistantBubble.textContent);
             }
         } else if (eventName === "done") {
             // Clear the indicator in case the stream produced zero
@@ -412,6 +427,7 @@
             clearThinkingIndicator(assistantBubble);
             const msg = payload.error || payload.detail || "unknown error";
             renderErrorBubble(assistantBubble, msg);
+            notifyVoiceEvent("onError", msg);
         } else {
             // Unknown event — log + ignore. Forward-compat: future
             // server events won't break the chat.
@@ -695,8 +711,11 @@
 
             bubble.appendChild(audioBar);
 
+            notifyVoiceEvent("onDone", text);
             // Automatically speak if TTS toggle is active
             speakText(text, false);
+        } else {
+            notifyVoiceEvent("onDone", "");
         }
 
         // Source cards inside a clean collapsible <details> accordion
@@ -776,7 +795,7 @@
             const sent = rawSentences[i];
             if (!current) {
                 current = sent;
-            } else if (current.length + 1 + sent.length <= 180) {
+            } else if (current.length + 1 + sent.length <= 240) {
                 current = `${current} ${sent}`;
             } else {
                 chunks.push(current);
@@ -806,6 +825,7 @@
             body: JSON.stringify({
                 text: trimmed,
                 voice: "bn-BD-NabanitaNeural",
+                rate: "+25%",
             }),
         }).then((resp) => {
             if (!resp.ok) {
@@ -886,7 +906,7 @@
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(clean);
         utterance.lang = "bn-BD";
-        utterance.rate = 0.95;
+        utterance.rate = 1.18;
         utterance.pitch = 1.0;
 
         const voices = window.speechSynthesis.getVoices();
@@ -900,6 +920,8 @@
         if (bnVoice) {
             utterance.voice = bnVoice;
         }
+        utterance.onend = () => notifyVoiceEvent("onSpeechEnd");
+        utterance.onerror = () => notifyVoiceEvent("onSpeechEnd");
         window.speechSynthesis.speak(utterance);
     }
 
@@ -921,6 +943,10 @@
             }
             activeAudioUrl = URL.createObjectURL(blob);
             const player = new Audio(activeAudioUrl);
+            player.preservesPitch = true;
+            player.mozPreservesPitch = true;
+            player.webkitPreservesPitch = true;
+            player.playbackRate = 1.12;
             activeAudioPlayer = player;
             player.onended = () => {
                 resolve();
@@ -952,15 +978,23 @@
         const blobPromises = chunks.map((chunk) => fetchTtsAudioBlob(chunk));
 
         try {
+            let started = false;
             for (let i = 0; i < blobPromises.length; ++i) {
                 const blob = await blobPromises[i];
                 if (sessionId !== currentTtsSessionId) {
                     return;
                 }
+                if (!started) {
+                    started = true;
+                    notifyVoiceEvent("onSpeechStart");
+                }
                 await playAudioBlob(blob, sessionId);
                 if (sessionId !== currentTtsSessionId) {
                     return;
                 }
+            }
+            if (sessionId === currentTtsSessionId) {
+                notifyVoiceEvent("onSpeechEnd");
             }
         } catch (err) {
             if (sessionId !== currentTtsSessionId) {
@@ -968,6 +1002,7 @@
             }
             // eslint-disable-next-line no-console
             console.warn("[AgriRAG] Backend neural TTS fallback to WebSpeech:", err);
+            notifyVoiceEvent("onSpeechStart");
             speakWithBrowserSynthesis(cleanTextForSpeech(rawText));
         }
     }
@@ -1175,35 +1210,43 @@
             };
 
             recognition.onresult = function (event) {
-                // Rebuild utterance from event.results[0..N-1] and deduplicate
-                // cumulative prefixes emitted by Android Chrome's SpeechRecognizer.
-                let sessionTranscript = "";
+                // Separate finalized segments from live interim text and use
+                // Unicode-safe token deduplication (ASCII \b fails on Bengali).
+                let finalPart = "";
+                let interimPart = "";
                 for (let i = 0; i < event.results.length; ++i) {
-                    const seg = (event.results[i][0].transcript || "").trim();
+                    const res = event.results[i];
+                    const seg = (res[0] && res[0].transcript ? res[0].transcript : "").trim();
                     if (!seg) continue;
-                    if (!sessionTranscript) {
-                        sessionTranscript = seg;
-                    } else if (seg.startsWith(sessionTranscript)) {
-                        // Android Chrome progressive cumulative hypothesis
-                        sessionTranscript = seg;
-                    } else if (sessionTranscript.endsWith(seg)) {
-                        // Exact duplicate segment
-                        continue;
+                    if (res.isFinal) {
+                        if (!finalPart) {
+                            finalPart = seg;
+                        } else if (seg.startsWith(finalPart)) {
+                            finalPart = seg;
+                        } else if (!finalPart.endsWith(seg)) {
+                            finalPart = `${finalPart} ${seg}`;
+                        }
                     } else {
-                        sessionTranscript = `${sessionTranscript} ${seg}`;
+                        interimPart = interimPart ? `${interimPart} ${seg}` : seg;
                     }
                 }
-                // Collapse any accidental adjacent repeated 1-3 word phrases
-                sessionTranscript = sessionTranscript
-                    .replace(/\b(\S+)(?:\s+\1\b)+/g, "$1")
-                    .replace(/\s+/g, " ")
-                    .trim();
+                const rawJoined = [finalPart, interimPart].filter(Boolean).join(" ").trim();
+                const tokens = rawJoined.split(/\s+/).filter(Boolean);
+                const deduped = [];
+                for (const tok of tokens) {
+                    if (deduped.length === 0 || deduped[deduped.length - 1] !== tok) {
+                        deduped.push(tok);
+                    }
+                }
+                const sessionTranscript = deduped.join(" ");
                 if (queryEl) {
                     queryEl.value = finalTranscript
                         ? `${finalTranscript} ${sessionTranscript}`.trim()
                         : sessionTranscript;
                 }
-                scheduleAutoSendOnSilence();
+                if (finalPart) {
+                    scheduleAutoSendOnSilence();
+                }
             };
 
             recognition.onerror = function (event) {
@@ -1218,7 +1261,13 @@
             };
 
             if (micBtnEl) {
-                micBtnEl.addEventListener("click", toggleSpeechRecognition);
+                micBtnEl.addEventListener("click", function () {
+                    // Defer to the full-screen Voice Agent overlay when loaded.
+                    if (window.__AgriRAGVoiceAgent) {
+                        return;
+                    }
+                    toggleSpeechRecognition();
+                });
             }
         } catch (err) {
             // eslint-disable-next-line no-console
@@ -1414,7 +1463,24 @@
             });
         });
 
-        // Initialize Web Speech STT
+        // Expose clean bridge for ui/static/voice_agent.js
+        window.__AgriRAGChat = {
+            getEngineConfig,
+            stopSpeech: stopSpeechOutput,
+            isAutoSendEnabled: () => Boolean(autoSendToggleEl && autoSendToggleEl.checked),
+            isTtsEnabled: () => Boolean(!ttsToggleEl || ttsToggleEl.checked),
+            setVoiceEventCallbacks: (cbs) => {
+                voiceEventCallbacks = cbs || null;
+            },
+            submitQuery: (text) => {
+                const cleaned = String(text || "").trim();
+                if (!cleaned || !queryEl || !composerEl || queryEl.disabled) return;
+                queryEl.value = cleaned;
+                composerEl.requestSubmit();
+            },
+        };
+
+        // Initialize Web Speech STT (fallback when voice_agent.js is absent)
         initSpeechRecognition();
 
         // Wire up category tabs for quick suggestion chips

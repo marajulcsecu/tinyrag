@@ -1,0 +1,362 @@
+/* Dedicated stylesheet for AgriRAG Voice Agent Overlay (loaded independently
+ * from style.css so mobile browsers never serve stale cached CSS). */
+
+body.va-open {
+    overflow: hidden;
+}
+
+.va-hidden,
+.va-overlay[hidden] {
+    display: none !important;
+}
+
+.va-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, #0b141b 0%, #0e1a22 52%, #0a1016 100%);
+    color: #ecf2f8;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+    animation: vaFadeIn 0.18s ease-out;
+}
+
+@keyframes vaFadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.va-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 16px;
+    background: linear-gradient(90deg, #0a5c46 0%, #0d6e54 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+    flex-shrink: 0;
+}
+
+.va-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.va-brand .brand-logo {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.28);
+    color: #ffffff;
+}
+
+.va-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.2;
+}
+
+.va-engine-badge {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(236, 253, 245, 0.9);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.va-close-btn {
+    background: rgba(0, 0, 0, 0.26);
+    border: 1px solid rgba(255, 255, 255, 0.26);
+    color: #ffffff;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.va-stage {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 14px 16px 8px;
+    width: 100%;
+    max-width: 540px;
+    margin: 0 auto;
+    overflow-y: auto;
+}
+
+.va-status-block {
+    text-align: center;
+    width: 100%;
+}
+
+.va-status-text {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: #f8fafc;
+}
+
+.va-status-sub {
+    margin: 5px 0 0;
+    font-size: 13px;
+    color: #94a3b8;
+    line-height: 1.48;
+}
+
+.va-wave-stage {
+    width: 100%;
+    max-width: 320px;
+    height: 92px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 20px;
+    background: rgba(16, 185, 129, 0.06);
+    border: 1px solid rgba(16, 185, 129, 0.22);
+    flex-shrink: 0;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.va-wave-stage.is-listening {
+    background: rgba(16, 185, 129, 0.11);
+    border-color: rgba(16, 185, 129, 0.58);
+    box-shadow: 0 0 26px rgba(16, 185, 129, 0.22);
+}
+
+.va-wave-stage.is-thinking {
+    background: rgba(14, 165, 233, 0.09);
+    border-color: rgba(14, 165, 233, 0.48);
+    box-shadow: 0 0 22px rgba(14, 165, 233, 0.18);
+}
+
+.va-wave-stage.is-speaking {
+    background: rgba(52, 211, 153, 0.11);
+    border-color: rgba(52, 211, 153, 0.58);
+    box-shadow: 0 0 26px rgba(52, 211, 153, 0.24);
+}
+
+#va-waveform {
+    width: 100%;
+    height: 86px;
+    display: block;
+}
+
+.va-transcript-card,
+.va-reply-card {
+    width: 100%;
+    background: rgba(22, 31, 43, 0.94);
+    border: 1px solid #222e3c;
+    border-radius: 16px;
+    padding: 12px 14px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.va-transcript-header,
+.va-reply-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.va-transcript-label,
+.va-reply-header span {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #8b9bb0;
+}
+
+.va-correction-badge {
+    font-size: 11px;
+    font-weight: 600;
+    color: #6ee7b7;
+    background: rgba(16, 185, 129, 0.16);
+    border: 1px solid rgba(16, 185, 129, 0.38);
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+.va-transcript-input {
+    width: 100%;
+    resize: none;
+    background: rgba(11, 15, 20, 0.78);
+    color: #f8fafc;
+    border: 1px solid rgba(148, 163, 184, 0.26);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 15.5px;
+    line-height: 1.5;
+    outline: none;
+}
+
+.va-transcript-input:focus {
+    border-color: #10b981;
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+}
+
+.va-countdown-wrap {
+    margin-top: 9px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.va-countdown-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.va-countdown-bar {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #10b981, #34d399);
+    border-radius: 999px;
+}
+
+.va-countdown-label {
+    font-size: 11.5px;
+    color: #6ee7b7;
+    text-align: center;
+}
+
+.va-transcript-actions {
+    margin-top: 8px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.va-retry-btn,
+.va-view-chat-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid #222e3c;
+    color: #ecf2f8;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.va-reply-text {
+    margin: 0;
+    font-size: 14.5px;
+    line-height: 1.65;
+    color: #e2e8f0;
+    max-height: 140px;
+    overflow-y: auto;
+}
+
+.va-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    padding: 12px 20px calc(22px + env(safe-area-inset-bottom, 0px));
+    flex-shrink: 0;
+}
+
+.va-btn-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.va-circle-btn {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-family: inherit;
+    transition: transform 0.12s ease, box-shadow 0.2s ease, background 0.18s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.va-circle-btn:active:not(:disabled) {
+    transform: scale(0.93);
+}
+
+.va-circle-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.va-circle-primary {
+    background: rgba(16, 185, 129, 0.15);
+    border: 2.5px solid #10b981;
+    color: #6ee7b7;
+    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.22);
+}
+
+.va-circle-primary.va-btn-recording {
+    background: #10b981;
+    border-color: #34d399;
+    color: #052e16;
+    animation: vaEmeraldPulse 1.3s infinite;
+}
+
+.va-circle-primary.va-btn-confirm {
+    background: #10b981;
+    border-color: #6ee7b7;
+    color: #052e16;
+    box-shadow: 0 8px 26px rgba(16, 185, 129, 0.38);
+}
+
+@keyframes vaEmeraldPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.65); }
+    70%  { box-shadow: 0 0 0 18px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.va-circle-stop {
+    background: #dc2626;
+    border: 2.5px solid #f87171;
+    color: #ffffff;
+    box-shadow: 0 8px 24px rgba(220, 38, 38, 0.36);
+}
+
+.va-stop-word {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+}
+
+.va-circle-label {
+    font-size: 15.5px;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+/* Highlight composer mic button on phones */
+@media (max-width: 768px) {
+    .btn-mic {
+        width: 42px;
+        height: 42px;
+        background: rgba(16, 185, 129, 0.14);
+        border-color: rgba(16, 185, 129, 0.5);
+        color: #6ee7b7;
+    }
+}

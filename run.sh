@@ -120,7 +120,7 @@ readonly LLAMACPP_BIN="${LLAMACPP_BIN:-${REPO_ROOT}/llama.cpp/build/bin/llama-se
 readonly LLM_GGUF="${LLM_GGUF:-${REPO_ROOT}/models/gemma-4-E2B-it.gguf}"
 readonly LLM_HOST="${LLM_HOST:-127.0.0.1}"
 readonly LLM_PORT="${LLM_PORT:-8080}"
-readonly API_HOST="${API_HOST:-127.0.0.1}"
+readonly API_HOST="${API_HOST:-0.0.0.0}"
 readonly API_PORT="${API_PORT:-8000}"
 if [[ -d "${REPO_ROOT}/.venv" ]]; then
     : "${VENV:=${REPO_ROOT}/.venv}"
@@ -396,8 +396,17 @@ start_uvicorn() {
         exit "${EXIT_HEALTH_TIMEOUT}"
     fi
     log_ok "uvicorn is healthy at http://${API_HOST}:${API_PORT}/"
-    log_info "Chat UI:  http://${API_HOST}:${API_PORT}/"
-    log_info "Admin UI: http://${API_HOST}:${API_PORT}/admin"
+    if command -v adb >/dev/null 2>&1; then
+        adb reverse "tcp:${API_PORT}" "tcp:${API_PORT}" >/dev/null 2>&1 && \
+            log_ok "Android USB port-forward active: http://localhost:${API_PORT}/ on phone" || true
+    fi
+    local lan_ip
+    lan_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    log_info "Chat UI (PC / USB Phone): http://localhost:${API_PORT}/"
+    if [[ -n "${lan_ip}" ]]; then
+        log_info "Chat UI (Same Wi-Fi LAN): http://${lan_ip}:${API_PORT}/"
+    fi
+    log_info "Admin UI:                 http://localhost:${API_PORT}/admin"
     log_info "Press Ctrl+C to stop both services."
 }
 
