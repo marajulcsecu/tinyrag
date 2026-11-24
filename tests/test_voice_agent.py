@@ -278,6 +278,16 @@ class TestVoiceAgentIntegrationAndUi:
         assert resp.status_code == 307
         assert resp.headers["location"] == "http://localhost:8000/?v=22"
 
+    def test_secure_mode_switch_buttons_present_and_no_auto_focus_on_bolun(
+        self, client: TestClient
+    ) -> None:
+        html = client.get("/").text
+        assert 'id="va-secure-actions"' in html
+        assert 'id="va-usb-link"' in html
+        assert 'id="va-https-link"' in html
+        js_src = VOICE_AGENT_JS.read_text(encoding="utf-8")
+        assert "transcriptInputEl.focus()" not in js_src
+
     def test_js_files_pass_node_syntax_check(self) -> None:
         node = shutil.which("node")
         if not node:

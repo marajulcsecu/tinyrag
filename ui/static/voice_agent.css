@@ -116,6 +116,56 @@ body.va-open {
     line-height: 1.48;
 }
 
+.va-secure-actions {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+}
+
+.va-secure-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 340px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: transform 0.14s ease, box-shadow 0.2s ease;
+}
+
+.va-secure-btn:active {
+    transform: scale(0.97);
+}
+
+.va-secure-btn-usb {
+    background: #10b981;
+    color: #052e16;
+    border: 1.5px solid #6ee7b7;
+    box-shadow: 0 4px 16px rgba(16, 185, 129, 0.32);
+}
+
+.va-secure-btn-https {
+    background: rgba(14, 165, 233, 0.16);
+    color: #7dd3fc;
+    border: 1.5px solid rgba(56, 189, 248, 0.55);
+}
+
+@keyframes vaAttentionShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+.va-secure-actions.va-attention {
+    animation: vaAttentionShake 0.28s ease-in-out 2;
+}
+
 .va-wave-stage {
     width: 100%;
     max-width: 320px;

@@ -376,8 +376,32 @@ start_uvicorn() {
     fi
     export TIKTOKEN_CACHE_DIR="${tiktoken_cache}"
     export TINYRAG_PREWARM_EMBEDDER="${TINYRAG_PREWARM_EMBEDDER:-1}"
+    export TINYRAG_HTTP_PORT="${API_PORT}"
     if [[ -d "${REPO_ROOT}/models/_hf_cache" ]]; then
         export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+    fi
+
+    # Generate a local self-signed TLS cert in logs/ so wireless Wi-Fi phones
+    # (https://<LAN_IP>:8443) also get a browser Secure Context for Microphone!
+    local https_port="${HTTPS_PORT:-8443}"
+    local tls_cert="${LOG_DIR}/tls_cert.pem"
+    local tls_key="${LOG_DIR}/tls_key.pem"
+    local detected_lan_ip
+    detected_lan_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    if command -v openssl >/dev/null 2>&1 && [[ ! -f "${tls_cert}" || ! -f "${tls_key}" ]]; then
+        local san_ext="DNS:localhost,IP:127.0.0.1"
+        if [[ -n "${detected_lan_ip}" ]]; then
+            san_ext="${san_ext},IP:${detected_lan_ip}"
+        fi
+        openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+            -keyout "${tls_key}" -out "${tls_cert}" \
+            -subj "/CN=AgriRAG-Voice" \
+            -addext "subjectAltName=${san_ext}" >/dev/null 2>&1 || true
+    fi
+    if [[ -f "${tls_cert}" && -f "${tls_key}" ]]; then
+        export TINYRAG_HTTPS_CERT="${tls_cert}"
+        export TINYRAG_HTTPS_KEY="${tls_key}"
+        export TINYRAG_HTTPS_PORT="${https_port}"
     fi
 
     PYTHONPATH=src "${VENV}/bin/python" -m uvicorn \
@@ -417,11 +441,14 @@ start_uvicorn() {
     fi
     local lan_ip
     lan_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
-    log_info "Chat UI (PC / USB Phone): http://localhost:${API_PORT}/"
+    log_info "Chat UI (PC / USB Phone):   http://localhost:${API_PORT}/"
     if [[ -n "${lan_ip}" ]]; then
-        log_info "Chat UI (Same Wi-Fi LAN): http://${lan_ip}:${API_PORT}/"
+        if [[ -f "${LOG_DIR}/tls_cert.pem" ]]; then
+            log_info "Chat UI (Wi-Fi Mic HTTPS):  https://${lan_ip}:${HTTPS_PORT:-8443}/"
+        fi
+        log_info "Chat UI (Same Wi-Fi HTTP):  http://${lan_ip}:${API_PORT}/"
     fi
-    log_info "Admin UI:                 http://localhost:${API_PORT}/admin"
+    log_info "Admin UI:                   http://localhost:${API_PORT}/admin"
     log_info "Press Ctrl+C to stop both services."
 }
 

@@ -82,7 +82,9 @@ Location: ``src/tinyrag/main.py``
 
 from __future__ import annotations
 
+import asyncio
 import os
+import ssl
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -289,10 +291,37 @@ def create_app(
         active_model_label = llm.model_name() if callable(llm.model_name) else str(llm.model_name)
         _log.info("app_ready", model_name=active_model_label)
 
+        # 8. Optional lightweight in-process HTTPS bridge (0.0.0.0:8443 -> 127.0.0.1:8000)
+        #    so wireless Wi-Fi Android/iOS phones get a browser Secure Context for Mic!
+        https_server: asyncio.AbstractServer | None = None
+        cert_file = os.environ.get("TINYRAG_HTTPS_CERT", "").strip()
+        key_file = os.environ.get("TINYRAG_HTTPS_KEY", "").strip()
+        if cert_file and key_file and Path(cert_file).is_file() and Path(key_file).is_file():
+            try:
+                https_port = int(os.environ.get("TINYRAG_HTTPS_PORT", "8443"))
+                http_target_port = int(
+                    os.environ.get("TINYRAG_HTTP_PORT", str(settings.server.port))
+                )
+                ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                ssl_ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
+                https_server = await asyncio.start_server(
+                    lambda r, w: _bridge_tls_to_http(r, w, http_target_port),
+                    host="0.0.0.0",
+                    port=https_port,
+                    ssl=ssl_ctx,
+                )
+                _log.info("https_bridge_started", https_port=https_port, target=http_target_port)
+            except Exception as exc:
+                _log.warning("https_bridge_skipped", error=str(exc))
+
         # ----- The actual lifespan body -----
         try:
             yield
         finally:
+            if https_server is not None:
+                https_server.close()
+                with suppress(Exception):
+                    await https_server.wait_closed()
             _log.info("app_stopping")
             # Persist any in-memory state. We swallow exceptions
             # in shutdown so an intermittent disk error doesn't
@@ -470,6 +499,44 @@ def create_app(
 # Builders (private — the only place concrete LLM/embedder classes
 # are imported outside the lifespan handler)
 # ----------------------------------------------------------------------------
+
+
+async def _pipe_stream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    try:
+        while True:
+            data = await reader.read(65536)
+            if not data:
+                break
+            writer.write(data)
+            await writer.drain()
+    except Exception:
+        pass
+    finally:
+        with suppress(Exception):
+            writer.close()
+
+
+async def _bridge_tls_to_http(
+    client_reader: asyncio.StreamReader,
+    client_writer: asyncio.StreamWriter,
+    target_port: int,
+) -> None:
+    """Pipe TLS client stream on :8443 directly to local HTTP uvicorn on :8000."""
+    backend_writer: asyncio.StreamWriter | None = None
+    try:
+        backend_reader, backend_writer = await asyncio.open_connection("127.0.0.1", target_port)
+        await asyncio.gather(
+            _pipe_stream(client_reader, backend_writer),
+            _pipe_stream(backend_reader, client_writer),
+        )
+    except Exception:
+        pass
+    finally:
+        if backend_writer is not None:
+            with suppress(Exception):
+                backend_writer.close()
+        with suppress(Exception):
+            client_writer.close()
 
 
 def _build_embedder(settings: Settings, *, kind: str) -> EmbeddingModel:

@@ -185,6 +185,9 @@
     let engineBadgeEl = null;
     let statusTextEl = null;
     let statusSubEl = null;
+    let secureActionsEl = null;
+    let usbLinkEl = null;
+    let httpsLinkEl = null;
     let waveStageEl = null;
     let waveformCanvasEl = null;
     let transcriptCardEl = null;
@@ -457,6 +460,9 @@
 
         if (nextState !== "review") {
             clearAutoSendCountdown();
+        }
+        if (secureActionsEl && nextState !== "idle") {
+            secureActionsEl.classList.add("va-hidden");
         }
 
         if (nextState === "idle") {
@@ -917,15 +923,13 @@
             if (errCode === "not-allowed" || errCode === "service-not-allowed") {
                 setState("idle", {
                     title: "মাইক্রোফোন অনুমতি বন্ধ আছে",
-                    sub: "ব্রাউজারের লক/টিউন আইকন থেকে Microphone Allow করে আবার 'বলুন' চাপুন, অথবা নিচের বক্সে লিখে পাঠান",
+                    sub: "ব্রাউজারের অ্যাড্রেস বারের আইকন থেকে Microphone Allow করে আবার 'বলুন' চাপুন",
                 });
-                if (transcriptInputEl) transcriptInputEl.focus();
             } else if (errCode === "network") {
                 setState("idle", {
                     title: "অফলাইন মোড — নিচের বক্সে লিখে পাঠান",
                     sub: "ইন্টারনেট ছাড়া ব্রাউজারের ভয়েস সার্ভিস বন্ধ থাকে, তবে নিচের বক্সে লিখে পাঠালে অফলাইন AI শতভাগ কাজ করবে",
                 });
-                if (transcriptInputEl) transcriptInputEl.focus();
             } else if (errCode === "no-speech") {
                 setState("idle", {
                     title: "কোনো কথা শোনা যায়নি",
@@ -936,7 +940,6 @@
                     title: "ভয়েস চিনতে সমস্যা হয়েছে",
                     sub: "আবার 'বলুন' চাপুন অথবা নিচের বক্সে বাংলায় টাইপ করে পাঠান",
                 });
-                if (transcriptInputEl) transcriptInputEl.focus();
             }
         };
 
@@ -953,9 +956,8 @@
                         : "মাইক্রোফোন চালু হয়নি",
                     sub: isOffline
                         ? "ইন্টারনেট ছাড়া ব্রাউজারের ভয়েস সার্ভিস বন্ধ থাকে — নিচের বক্সে প্রশ্ন লিখে পাঠান"
-                        : "ব্রাউজারের অ্যাড্রেস বারের আইকন থেকে Microphone Allow করুন, অথবা নিচের বক্সে বাংলায় লিখে পাঠান",
+                        : "ব্রাউজারের অ্যাড্রেস বারের আইকন থেকে Microphone Allow করে আবার 'বলুন' চাপুন",
                 });
-                if (transcriptInputEl) transcriptInputEl.focus();
                 return;
             }
             if (state !== "listening") {
@@ -1154,21 +1156,34 @@
         updateEngineBadge();
 
         // Chrome blocks mic & Web Speech API on plain HTTP non-localhost IPs (http://192.168.x.x).
+        // Never call .focus() here — popping open the phone keyboard hides the guidance!
         if (window.isSecureContext === false) {
-            // If user already typed a question in the box, submit it directly!
             if (transcriptInputEl && transcriptInputEl.value.trim().length >= 2) {
                 submitReviewedTranscript();
                 return;
             }
-            const portPart = window.location.port ? `:${window.location.port}` : ":8000";
+            const httpPort = window.location.port || "8000";
+            const hostOnly = window.location.hostname || "localhost";
+            if (usbLinkEl) {
+                usbLinkEl.href = `http://localhost:${httpPort}/?va=1`;
+            }
+            if (httpsLinkEl) {
+                httpsLinkEl.href = `https://${hostOnly}:8443/?va=1`;
+            }
             setState("idle", {
-                title: "মাইকের জন্য localhost সংযোগ প্রয়োজন",
-                sub: `Chrome নিরাপত্তার কারণে ${window.location.host} ঠিকানায় মাইক ব্লক করে। পিসিতে বা USB ফোনে http://localhost${portPart} খুলুন, অথবা নিচের বক্সে লিখে পাঠান।`,
+                title: "ভয়েস চালুর জন্য নিচের যেকোনো একটি মোড চাপুন",
+                sub: `Chrome নিরাপত্তার কারণে http://${window.location.host}-এ মাইক বন্ধ রাখে। নিচের বাটনে ১ ট্যাপেই ভয়েস চালু হবে:`,
             });
-            if (transcriptInputEl) {
-                transcriptInputEl.focus();
+            if (secureActionsEl) {
+                secureActionsEl.classList.remove("va-hidden");
+                secureActionsEl.classList.remove("va-attention");
+                void secureActionsEl.offsetWidth;
+                secureActionsEl.classList.add("va-attention");
             }
             return;
+        }
+        if (secureActionsEl) {
+            secureActionsEl.classList.add("va-hidden");
         }
 
         if (shouldUseAudioRecorder()) {
@@ -1278,6 +1293,9 @@
         engineBadgeEl = document.getElementById("va-engine-badge");
         statusTextEl = document.getElementById("va-status-text");
         statusSubEl = document.getElementById("va-status-sub");
+        secureActionsEl = document.getElementById("va-secure-actions");
+        usbLinkEl = document.getElementById("va-usb-link");
+        httpsLinkEl = document.getElementById("va-https-link");
         waveStageEl = document.getElementById("va-wave-stage");
         waveformCanvasEl = document.getElementById("va-waveform");
         transcriptCardEl = document.getElementById("va-transcript-card");
@@ -1354,6 +1372,25 @@
                 closeOverlay();
             }
         });
+
+        // If navigated here via ?va=1 (from the 1-tap USB localhost or Wi-Fi HTTPS switcher),
+        // automatically open the Voice Agent ready for 1-tap microphone activation!
+        try {
+            const params = new URLSearchParams(window.location.search || "");
+            if (params.get("va") === "1") {
+                params.delete("va");
+                const cleanSearch = params.toString();
+                const cleanUrl = `${window.location.pathname}${cleanSearch ? `?${cleanSearch}` : ""}${window.location.hash}`;
+                window.history.replaceState({}, "", cleanUrl);
+                openOverlay(false);
+                setState("idle", {
+                    title: "ভয়েস সংযোগ প্রস্তুত!",
+                    sub: "এখন নিচের সবুজ 'বলুন' বাটনে চাপ দিয়ে বাংলায় কথা বলুন",
+                });
+            }
+        } catch (_) {
+            /* ignore URLSearchParams issues */
+        }
     }
 
     if (document.readyState === "loading") {

@@ -12,7 +12,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="/static/voice_agent.css?v=23">
+    <link rel="stylesheet" href="/static/voice_agent.css?v=24">
 </head>
 <body>
     <header class="topbar">
@@ -304,6 +304,14 @@
             <div class="va-status-block">
                 <h2 class="va-status-text" id="va-status-text">শুনছি... বাংলায় বলুন</h2>
                 <p class="va-status-sub" id="va-status-sub">বাংলায় আপনার ফসলের সমস্যার কথা পরিষ্কার করে বলুন</p>
+                <div class="va-secure-actions va-hidden" id="va-secure-actions">
+                    <a href="http://localhost:8000/?va=1" class="va-secure-btn va-secure-btn-usb" id="va-usb-link">
+                        🔌 USB ফোনে ভয়েস চালু করুন (localhost)
+                    </a>
+                    <a href="#" class="va-secure-btn va-secure-btn-https" id="va-https-link">
+                        📶 Wi-Fi ফোনে ভয়েস চালু করুন (HTTPS)
+                    </a>
+                </div>
             </div>
 
             <div class="va-wave-stage" id="va-wave-stage" aria-hidden="true">
@@ -370,7 +378,7 @@
     </footer>
 
     <script src="/static/chat.js" defer></script>
-    <script src="/static/voice_agent.js?v=23" defer></script>
+    <script src="/static/voice_agent.js?v=24" defer></script>
     <script src="/static/status.js" defer></script>
 </body>
 </html>
