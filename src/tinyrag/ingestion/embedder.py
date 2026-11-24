@@ -327,6 +327,17 @@ class SentenceTransformerEmbedder:
         """
         return self._loaded is not None
 
+    def has_local_cache(self) -> bool:
+        """Return ``True`` if a downloaded HuggingFace snapshot already exists on disk."""
+        safe_repo_dir = (
+            self._cache_dir
+            / f"models--{self._model_name.replace('/', '--')}"
+            / "snapshots"
+        )
+        if not safe_repo_dir.is_dir():
+            return False
+        return any(p.is_dir() for p in safe_repo_dir.iterdir())
+
     @property
     def dimension(self) -> int:
         """The model's actual output dimension (loads the model on first access)."""

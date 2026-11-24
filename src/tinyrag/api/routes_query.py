@@ -633,6 +633,7 @@ async def _synthesize_bengali_tts(
     # 1. Primary Realistic Engine: Microsoft Azure Neural Bangladeshi Bengali TTS
     # (bn-BD-NabanitaNeural / bn-BD-PradeepNeural) with IPv4 connector to avoid
     # 4s IPv6 DNS timeouts and rate="+25%" for crisp, natural conversational speed.
+    network_down = False
     for attempt in range(2):
         try:
             import socket
@@ -646,8 +647,8 @@ async def _synthesize_bengali_tts(
                 voice,
                 rate=rate,
                 connector=conn,
-                connect_timeout=6,
-                receive_timeout=15,
+                connect_timeout=3,
+                receive_timeout=12,
             )
             async for chunk in comm.stream():
                 if chunk.get("type") == "audio" and chunk.get("data"):
@@ -655,6 +656,7 @@ async def _synthesize_bengali_tts(
             if audio_bytes:
                 break
         except Exception as exc:
+            err_str = str(exc).lower()
             _log.warning(
                 "edge-tts primary attempt failed",
                 attempt=attempt + 1,
@@ -662,19 +664,34 @@ async def _synthesize_bengali_tts(
                 error=str(exc),
             )
             audio_bytes.clear()
+            # Fail fast if Wi-Fi is turned off (DNS/network unreachable) so offline
+            # demos fall back to local speech immediately instead of stalling 15s.
+            if any(
+                k in err_str
+                for k in (
+                    "name or service not known",
+                    "temporary failure in name resolution",
+                    "network is unreachable",
+                    "cannot connect to host",
+                )
+            ):
+                network_down = True
+                break
 
-    # 2. Fallback: Google Translate TTS (gTTS) in background thread pool
-    if not audio_bytes:
+    # 2. Fallback: Google Translate TTS (gTTS) in background thread pool (skip if offline)
+    if not audio_bytes and not network_down:
         try:
             gtts_data = await asyncio.to_thread(_synthesize_gtts_sync, clean_text)
             if gtts_data:
                 audio_bytes.extend(gtts_data)
         except Exception as exc:
             _log.warning("gTTS fallback also failed", error=str(exc))
-            return JSONResponse(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content={"error": "tts_unavailable", "detail": str(exc)},
-            )
+
+    if not audio_bytes:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "tts_unavailable", "detail": "Offline or cloud TTS unreachable"},
+        )
 
     final_bytes = bytes(audio_bytes)
     _TTS_CACHE[cache_key] = final_bytes

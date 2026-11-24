@@ -339,10 +339,10 @@ start_llama() {
     # Wait for /health. Returns 200 with {"status":"ok"} when the
     # model is fully loaded (can take 5-30 s for Phi-3 Mini).
     log_info "Waiting for llama-server /health (timeout ${HEALTH_TIMEOUT_SECONDS}s)…"
-    if ! curl --silent --show-error \
+    if ! curl --silent \
               --retry "${HEALTH_TIMEOUT_SECONDS}" --retry-delay 1 \
               --retry-connrefused --max-time 2 \
-              "http://${LLM_HOST}:${LLM_PORT}/health" >/dev/null; then
+              "http://${LLM_HOST}:${LLM_PORT}/health" >/dev/null 2>&1; then
         log_error "llama-server failed to become healthy in ${HEALTH_TIMEOUT_SECONDS}s"
         log_error "Last 20 lines of ${LLAMA_LOG}:"
         tail -20 "${LLAMA_LOG}" >&2 || true
@@ -367,6 +367,19 @@ start_uvicorn() {
     # `cd` first so uvicorn's working directory is the repo root
     # (otherwise relative paths in config.yaml would break).
     cd "${REPO_ROOT}"
+    # Keep tiktoken cache in persistent models/_tiktoken_cache so reboots (which
+    # wipe /tmp/data-gym-cache) and 100% offline live demos start in ~1 second.
+    local tiktoken_cache="${REPO_ROOT}/models/_tiktoken_cache"
+    mkdir -p "${tiktoken_cache}"
+    if [[ -d "/tmp/data-gym-cache" ]] && [[ -z "$(ls -A "${tiktoken_cache}" 2>/dev/null || true)" ]]; then
+        cp -n /tmp/data-gym-cache/* "${tiktoken_cache}/" 2>/dev/null || true
+    fi
+    export TIKTOKEN_CACHE_DIR="${tiktoken_cache}"
+    export TINYRAG_PREWARM_EMBEDDER="${TINYRAG_PREWARM_EMBEDDER:-1}"
+    if [[ -d "${REPO_ROOT}/models/_hf_cache" ]]; then
+        export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+    fi
+
     PYTHONPATH=src "${VENV}/bin/python" -m uvicorn \
         tinyrag.main:app \
         --host "${API_HOST}" --port "${API_PORT}" \
@@ -382,20 +395,22 @@ start_uvicorn() {
         exit "${EXIT_HEALTH_TIMEOUT}"
     fi
 
-    # Wait for /api/status — the route exists at import time, so it
-    # becomes reachable as soon as uvicorn binds the port + the
-    # FastAPI lifespan startup completes (~1-3 s).
+    # Wait for /api/status — poll 127.0.0.1 even when API_HOST=0.0.0.0.
+    local probe_host="${API_HOST}"
+    if [[ "${probe_host}" == "0.0.0.0" ]]; then
+        probe_host="127.0.0.1"
+    fi
     log_info "Waiting for uvicorn /api/status (timeout ${HEALTH_TIMEOUT_SECONDS}s)…"
-    if ! curl --silent --show-error \
+    if ! curl --silent \
               --retry "${HEALTH_TIMEOUT_SECONDS}" --retry-delay 1 \
               --retry-connrefused --max-time 2 \
-              "http://${API_HOST}:${API_PORT}/api/status" >/dev/null; then
+              "http://${probe_host}:${API_PORT}/api/status" >/dev/null 2>&1; then
         log_error "uvicorn failed to come up in ${HEALTH_TIMEOUT_SECONDS}s"
         log_error "Last 20 lines of ${UVICORN_LOG}:"
         tail -20 "${UVICORN_LOG}" >&2 || true
         exit "${EXIT_HEALTH_TIMEOUT}"
     fi
-    log_ok "uvicorn is healthy at http://${API_HOST}:${API_PORT}/"
+    log_ok "uvicorn is healthy at http://localhost:${API_PORT}/"
     if command -v adb >/dev/null 2>&1; then
         adb reverse "tcp:${API_PORT}" "tcp:${API_PORT}" >/dev/null 2>&1 && \
             log_ok "Android USB port-forward active: http://localhost:${API_PORT}/ on phone" || true

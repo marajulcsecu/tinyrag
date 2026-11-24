@@ -82,11 +82,13 @@ Location: ``src/tinyrag/main.py``
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
@@ -187,6 +189,14 @@ def create_app(
         project_root = None
     configure_logging(settings.logging, project_root=project_root)
 
+    # Point tiktoken at the persistent on-disk cache inside models/_tiktoken_cache
+    # so reboots (which wipe /tmp/data-gym-cache) or offline demos never stall
+    # trying to download cl100k_base.tiktoken from Azure Blob Storage.
+    if project_root is not None and not os.environ.get("TIKTOKEN_CACHE_DIR"):
+        tiktoken_cache = Path(project_root) / "models" / "_tiktoken_cache"
+        if tiktoken_cache.is_dir():
+            os.environ["TIKTOKEN_CACHE_DIR"] = str(tiktoken_cache)
+
     # --- The lifespan: builds singletons, loads from disk, persists on exit.
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -199,8 +209,16 @@ def create_app(
             else str(settings.deployment.target),
         )
 
-        # 1. Build embedder (lazy — model is only loaded on first .embed())
+        # 1. Build embedder (pre-warm immediately under run.sh when local HF cache
+        #    is present so the very first live demo query retrieves in ~80ms).
         embedder = _build_embedder(settings, kind=embedder_kind)
+        if (
+            embedder_kind == "real"
+            and os.environ.get("TINYRAG_PREWARM_EMBEDDER") == "1"
+            and getattr(embedder, "has_local_cache", lambda: False)()
+        ):
+            with suppress(Exception):
+                embedder.load()
 
         # 2. Build both FAISS stores. We pass the embedder's dim
         #    so the freshly-created index matches the chunks the
@@ -245,9 +263,15 @@ def create_app(
 
         # 6. Build the prompt builder from the chunking settings
         #    so chunk-token-counts and prompt-token-counts are in
-        #    the same units.
+        #    the same units, honoring settings.llm.context_size (8192).
+        reserved_ans = min(
+            settings.llm.max_tokens,
+            max(128, settings.llm.context_size // 2),
+        )
         prompt_builder = PromptBuilder.from_chunking_settings(
             settings.chunking,
+            max_prompt_tokens=settings.llm.context_size,
+            reserved_for_answer_tokens=reserved_ans,
             system_prompt=settings.llm.system_prompt or BENGALI_AGRIRAG_SYSTEM_PROMPT,
         )
 
@@ -262,7 +286,8 @@ def create_app(
         app.state.retriever = retriever
         app.state.prompt_builder = prompt_builder
 
-        _log.info("app_ready", model_name=llm.model_name)
+        active_model_label = llm.model_name() if callable(llm.model_name) else str(llm.model_name)
+        _log.info("app_ready", model_name=active_model_label)
 
         # ----- The actual lifespan body -----
         try:
@@ -344,6 +369,18 @@ def create_app(
 
     @app.middleware("http")
     async def _no_stale_ui_cache(request: Request, call_next):
+        # Auto-redirect http://0.0.0.0:8000 -> http://localhost:8000 so Chrome treats
+        # the origin as a Secure Context (allowing Web Speech & Microphone access).
+        host_hdr = (request.headers.get("host") or "").strip()
+        if request.method in ("GET", "HEAD") and (
+            host_hdr == "0.0.0.0" or host_hdr.startswith("0.0.0.0:")
+        ):
+            port_part = host_hdr.split(":", 1)[1] if ":" in host_hdr else ""
+            new_netloc = f"localhost:{port_part}" if port_part else "localhost"
+            query_part = f"?{request.url.query}" if request.url.query else ""
+            target_url = f"{request.url.scheme}://{new_netloc}{request.url.path}{query_part}"
+            return RedirectResponse(url=target_url, status_code=307)
+
         response = await call_next(request)
         path = request.url.path
         if path == "/" or path.startswith("/static/"):

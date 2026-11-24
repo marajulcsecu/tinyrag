@@ -273,6 +273,11 @@ class TestVoiceAgentIntegrationAndUi:
         assert ".va-overlay" in css_resp.text
         assert ".va-circle-stop" in css_resp.text
 
+    def test_zero_host_auto_redirects_to_localhost(self, client: TestClient) -> None:
+        resp = client.get("/?v=22", headers={"host": "0.0.0.0:8000"}, follow_redirects=False)
+        assert resp.status_code == 307
+        assert resp.headers["location"] == "http://localhost:8000/?v=22"
+
     def test_js_files_pass_node_syntax_check(self) -> None:
         node = shutil.which("node")
         if not node:

@@ -840,6 +840,14 @@
         committedFinalText = "";
         latestInterimText = "";
         syntheticEnergy = 0.25;
+        let speechStarted = false;
+
+        if (statusTextEl) {
+            statusTextEl.textContent = "মাইক চালু হচ্ছে...";
+        }
+        if (statusSubEl) {
+            statusSubEl.textContent = "ব্রাউজার মাইক্রোফোন অনুমতি চাইলে Allow চাপুন";
+        }
 
         const rec = new Ctor();
         rec.lang = "bn-BD";
@@ -851,6 +859,7 @@
 
         rec.onstart = () => {
             if (state === "closed") return;
+            speechStarted = true;
             if (transcriptInputEl) {
                 transcriptInputEl.value = "";
                 transcriptInputEl.placeholder = "শুনছি... বাংলায় বলুন...";
@@ -908,8 +917,15 @@
             if (errCode === "not-allowed" || errCode === "service-not-allowed") {
                 setState("idle", {
                     title: "মাইক্রোফোন অনুমতি বন্ধ আছে",
-                    sub: "ব্রাউজারের লক আইকন থেকে Microphone Allow করে আবার চেষ্টা করুন",
+                    sub: "ব্রাউজারের লক/টিউন আইকন থেকে Microphone Allow করে আবার 'বলুন' চাপুন, অথবা নিচের বক্সে লিখে পাঠান",
                 });
+                if (transcriptInputEl) transcriptInputEl.focus();
+            } else if (errCode === "network") {
+                setState("idle", {
+                    title: "অফলাইন মোড — নিচের বক্সে লিখে পাঠান",
+                    sub: "ইন্টারনেট ছাড়া ব্রাউজারের ভয়েস সার্ভিস বন্ধ থাকে, তবে নিচের বক্সে লিখে পাঠালে অফলাইন AI শতভাগ কাজ করবে",
+                });
+                if (transcriptInputEl) transcriptInputEl.focus();
             } else if (errCode === "no-speech") {
                 setState("idle", {
                     title: "কোনো কথা শোনা যায়নি",
@@ -918,14 +934,31 @@
             } else {
                 setState("idle", {
                     title: "ভয়েস চিনতে সমস্যা হয়েছে",
-                    sub: "আবার 'বলুন' চাপুন অথবা নিচে বাংলায় টাইপ করুন",
+                    sub: "আবার 'বলুন' চাপুন অথবা নিচের বক্সে বাংলায় টাইপ করে পাঠান",
                 });
+                if (transcriptInputEl) transcriptInputEl.focus();
             }
         };
 
         rec.onend = () => {
             activeRecognition = null;
-            if (webSpeechCancelled || state === "closed" || state !== "listening") {
+            if (webSpeechCancelled || state === "closed") {
+                return;
+            }
+            if (!speechStarted) {
+                const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+                setState("idle", {
+                    title: isOffline
+                        ? "অফলাইন মোড — নিচের বক্সে লিখে পাঠান"
+                        : "মাইক্রোফোন চালু হয়নি",
+                    sub: isOffline
+                        ? "ইন্টারনেট ছাড়া ব্রাউজারের ভয়েস সার্ভিস বন্ধ থাকে — নিচের বক্সে প্রশ্ন লিখে পাঠান"
+                        : "ব্রাউজারের অ্যাড্রেস বারের আইকন থেকে Microphone Allow করুন, অথবা নিচের বক্সে বাংলায় লিখে পাঠান",
+                });
+                if (transcriptInputEl) transcriptInputEl.focus();
+                return;
+            }
+            if (state !== "listening") {
                 return;
             }
             const rawFinal = [committedFinalText, latestInterimText]
@@ -1099,7 +1132,20 @@
     // User Actions (Open, Close, Primary Button, Red STOP Button)
     // ----------------------------------------------------------------
 
+    function redirectZeroHostToLocalhost() {
+        if (window.location && window.location.hostname === "0.0.0.0") {
+            const portPart = window.location.port ? `:${window.location.port}` : "";
+            const nextUrl = `${window.location.protocol}//localhost${portPart}${window.location.pathname}${window.location.search}${window.location.hash}`;
+            window.location.replace(nextUrl);
+            return true;
+        }
+        return false;
+    }
+
     function beginListening() {
+        if (redirectZeroHostToLocalhost()) {
+            return;
+        }
         const bridge = getChatBridge();
         if (bridge && typeof bridge.stopSpeech === "function") {
             bridge.stopSpeech();
@@ -1107,12 +1153,21 @@
         clearAutoSendCountdown();
         updateEngineBadge();
 
-        // Android Chrome blocks mic & Web Speech API on plain HTTP LAN IPs (http://192.168.x.x).
+        // Chrome blocks mic & Web Speech API on plain HTTP non-localhost IPs (http://192.168.x.x).
         if (window.isSecureContext === false) {
+            // If user already typed a question in the box, submit it directly!
+            if (transcriptInputEl && transcriptInputEl.value.trim().length >= 2) {
+                submitReviewedTranscript();
+                return;
+            }
+            const portPart = window.location.port ? `:${window.location.port}` : ":8000";
             setState("idle", {
-                title: "নিরাপদ সংযোগ (localhost / HTTPS) প্রয়োজন",
-                sub: "ফোনের Chrome নিরাপত্তার কারণে http://192.168... ঠিকানায় মাইক ব্লক করে। USB দিয়ে http://localhost:8000 ওপেন করুন অথবা নিচের বক্সে লিখে পাঠান।",
+                title: "মাইকের জন্য localhost সংযোগ প্রয়োজন",
+                sub: `Chrome নিরাপত্তার কারণে ${window.location.host} ঠিকানায় মাইক ব্লক করে। পিসিতে বা USB ফোনে http://localhost${portPart} খুলুন, অথবা নিচের বক্সে লিখে পাঠান।`,
             });
+            if (transcriptInputEl) {
+                transcriptInputEl.focus();
+            }
             return;
         }
 
@@ -1124,6 +1179,9 @@
     }
 
     function openOverlay(autoStartListening) {
+        if (redirectZeroHostToLocalhost()) {
+            return;
+        }
         if (!overlayEl) return;
         forceBrowserFallback = false;
         updateEngineBadge();
@@ -1157,7 +1215,13 @@
     }
 
     function handlePrimaryAction() {
-        if (state === "idle" || state === "speaking") {
+        if (state === "idle") {
+            if (transcriptInputEl && transcriptInputEl.value.trim().length >= 2) {
+                submitReviewedTranscript();
+                return;
+            }
+            beginListening();
+        } else if (state === "speaking") {
             beginListening();
         } else if (state === "listening") {
             if (mediaRecorder && mediaRecorder.state === "recording") {
@@ -1206,6 +1270,9 @@
     // ----------------------------------------------------------------
 
     function init() {
+        if (redirectZeroHostToLocalhost()) {
+            return;
+        }
         overlayEl = document.getElementById("voice-agent-overlay");
         closeBtnEl = document.getElementById("va-close-btn");
         engineBadgeEl = document.getElementById("va-engine-badge");
@@ -1253,18 +1320,27 @@
         if (stopBtnEl) stopBtnEl.addEventListener("click", handleStopAction);
         if (retryBtnEl) retryBtnEl.addEventListener("click", beginListening);
 
-        // Pause auto-send immediately if the user taps or edits the transcript box!
+        // Pause auto-send immediately if the user taps or edits the transcript box,
+        // and switch idle -> review ("পাঠান") if the user types manually!
         if (transcriptInputEl) {
-            const pauseOnEdit = () => {
+            const onFocusOrEdit = () => {
                 if (countdownTimer) {
                     clearAutoSendCountdown();
                     if (statusSubEl) {
                         statusSubEl.textContent = "সম্পাদনা শেষ হলে নিচের 'পাঠান' বাটনে চাপুন";
                     }
                 }
+                const val = transcriptInputEl.value.trim();
+                if (state === "idle" && val.length >= 2) {
+                    webSpeechCancelled = true;
+                    stopWebSpeech();
+                    setState("review", {
+                        sub: "লেখা শেষ হলে নিচের 'পাঠান' বাটনে চাপুন",
+                    });
+                }
             };
-            transcriptInputEl.addEventListener("focus", pauseOnEdit);
-            transcriptInputEl.addEventListener("input", pauseOnEdit);
+            transcriptInputEl.addEventListener("focus", onFocusOrEdit);
+            transcriptInputEl.addEventListener("input", onFocusOrEdit);
             transcriptInputEl.addEventListener("keydown", (e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();

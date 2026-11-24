@@ -45,6 +45,16 @@ Location: ``src/tinyrag/``
 
 from __future__ import annotations
 
+import os as _os
+from pathlib import Path as _Path
+
+# Automatically point tiktoken at the persistent repo-local cache when present
+# so CLI scripts (ingest.py, ask.py) and offline tests never hang after reboot.
+if not _os.environ.get("TIKTOKEN_CACHE_DIR"):
+    _repo_tiktoken = _Path(__file__).resolve().parent.parent.parent / "models" / "_tiktoken_cache"
+    if _repo_tiktoken.is_dir():
+        _os.environ["TIKTOKEN_CACHE_DIR"] = str(_repo_tiktoken)
+
 # No symbols are re-exported at the package root. Callers should import
 # from the appropriate subpackage (e.g. ``tinyrag.generation.LLMClient``).
 # This keeps the public surface explicit and prevents accidental

@@ -336,8 +336,14 @@ def run_ask(
         metadata=metadata,
         default_threshold=default_threshold,
     )
+    reserved_ans = min(
+        settings.llm.max_tokens,
+        max(128, settings.llm.context_size // 2),
+    )
     prompt_builder = PromptBuilder.from_chunking_settings(
         settings.chunking,
+        max_prompt_tokens=settings.llm.context_size,
+        reserved_for_answer_tokens=reserved_ans,
         system_prompt=settings.llm.system_prompt or BENGALI_AGRIRAG_SYSTEM_PROMPT,
     )
 

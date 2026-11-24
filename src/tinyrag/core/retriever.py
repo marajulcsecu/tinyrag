@@ -639,7 +639,7 @@ class Retriever:
 
                 if cid in from_sensor:
                     if matches == 0 or (specific_terms and spec_matches == 0 and matches < 2):
-                        merged[cid] = min(merged[cid] * 0.20, 0.20)
+                        merged[cid] = min(merged[cid] * 0.10, 0.10)
                         continue
                     base_score = 0.55
                     fts_boost = (
@@ -655,9 +655,9 @@ class Retriever:
 
                 # Guard against MiniLM [UNK] dense noise and off-crop generic matches:
                 # If the Bengali query names specific crops/pests/diseases and a chunk
-                # matches ZERO of them, damp its score below threshold.
+                # matches ZERO of them, damp its score below threshold (including 0.15 floor).
                 if (specific_terms and spec_matches == 0) or (query_terms and matches == 0):
-                    merged[cid] = min(merged[cid] * 0.20, 0.20)
+                    merged[cid] = min(merged[cid] * 0.10, 0.10)
                     continue
 
                 # Check if the chunk's Markdown section heading directly matches specific query terms
@@ -894,6 +894,7 @@ _GENERIC_AGRI_TERMS: frozenset[str] = frozenset(
     unicodedata.normalize("NFC", w)
     for w in {
         "রোগ", "রোগে", "রোগের", "পোকা", "পোকার", "ছত্রাক", "ভাইরাস", "ব্যাকটেরিয়া",
+        "পচা", "পচে", "পচন",
         "আক্রমণ", "আক্রমণে", "চিকিৎসা", "লক্ষণ", "ব্যবস্থাপনা", "প্রতিকার", "দমন", "দমনে", "দমনের",
         "চাষ", "চাষে", "চাষের", "নিয়ম", "নিয়ম", "পদ্ধতি", "সার", "মাত্রা", "প্রয়োগ", "প্রয়োগ",
         "কীটনাশক", "ছত্রাকনাশক", "বালাইনাশক", "ওষুধ", "স্প্রে", "ফল", "ফলে", "ফলের",
